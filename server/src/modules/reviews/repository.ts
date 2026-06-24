@@ -144,6 +144,10 @@ export class ReviewRepository {
     prId: string;
     provider: string | null;
     model: string | null;
+    /** Shared timestamp for every run queued in the same "Run Review" click,
+     *  so the PR list's cost rollup can identify "the latest review round" as
+     *  the rows sharing a PR's max ran_at. Omit to default to now(). */
+    ranAt?: Date;
   }): Promise<string> {
     return runRepo.createAgentRun(this.db, values);
   }
@@ -155,6 +159,7 @@ export class ReviewRepository {
       durationMs: number;
       tokensIn: number;
       tokensOut: number;
+      costUsd: number | null;
       findingsCount: number;
       grounding: string;
       /** Review score (0-100); null on failed/cancelled runs. */

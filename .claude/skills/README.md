@@ -6,6 +6,7 @@ Reusable AI skills that provide specialized knowledge and workflows. Canonical l
 
 | Skill | Scope | Description |
 |-------|-------|-------------|
+| [engineering-insights](engineering-insights/SKILL.md) | Project | Capture non-obvious decisions, gotchas, and fixes into the right package's `INSIGHTS.md`, as-you-go and at wrap-up |
 | [fastify-best-practices](fastify-best-practices/SKILL.md) | Backend | Fastify routes, plugins, JSON-schema validation, error handling |
 | [drizzle-orm-patterns](drizzle-orm-patterns/SKILL.md) | Backend | Drizzle schema, queries, relations, transactions, migrations |
 | [postgresql-table-design](postgresql-table-design/SKILL.md) | Backend | Postgres schema design, data types, indexing, constraints |
