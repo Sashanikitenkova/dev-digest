@@ -174,6 +174,10 @@ export const PrMeta = z.object({
   // absent/null on PrDetail and when the PR has no agent runs yet — same
   // nullish convention as `score` above, for the same reason).
   cost_usd: z.number().nullish(),
+  // Per-severity finding counts from the latest review (list endpoint only).
+  findings_critical: z.number().int().nullish(),
+  findings_warning: z.number().int().nullish(),
+  findings_suggestion: z.number().int().nullish(),
 });
 export type PrMeta = z.infer<typeof PrMeta>;
 

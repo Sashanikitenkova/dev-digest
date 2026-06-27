@@ -111,21 +111,41 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
       }
     }
 
-    // Latest-review SCORE per PR for the list's score ring. Computed on read
-    // from reviews (no FK denorm); the list is small, so one IN-query + JS
-    // grouping is cheap. (The per-severity FINDINGS breakdown is intentionally
-    // not surfaced on the list — findings live on the PR detail page.)
+    // Latest-review SCORE + per-severity FINDINGS counts per PR for the list.
     const prIds = rows.map((r) => r.id);
-    const latestReviewByPr = new Map<string, { score: number | null }>();
+    const latestReviewByPr = new Map<string, { score: number | null; reviewId: string }>();
     if (prIds.length > 0) {
       const reviewRows = await container.db
-        .select({ prId: t.reviews.prId, score: t.reviews.score })
+        .select({ prId: t.reviews.prId, score: t.reviews.score, id: t.reviews.id })
         .from(t.reviews)
         .where(and(inArray(t.reviews.prId, prIds), eq(t.reviews.kind, 'review')))
         .orderBy(desc(t.reviews.createdAt));
       // Rows are newest-first → first seen per PR is the latest review.
       for (const rv of reviewRows) {
-        if (!latestReviewByPr.has(rv.prId)) latestReviewByPr.set(rv.prId, { score: rv.score });
+        if (!latestReviewByPr.has(rv.prId)) latestReviewByPr.set(rv.prId, { score: rv.score, reviewId: rv.id });
+      }
+    }
+
+    // Findings counts for the latest review of each PR.
+    type SevCounts = { CRITICAL: number; WARNING: number; SUGGESTION: number };
+    const findingsCountByPr = new Map<string, SevCounts>();
+    const latestReviewIds = [...latestReviewByPr.values()].map((v) => v.reviewId);
+    if (latestReviewIds.length > 0) {
+      const findingRows = await container.db
+        .select({ reviewId: t.findings.reviewId, severity: t.findings.severity })
+        .from(t.findings)
+        .where(inArray(t.findings.reviewId, latestReviewIds));
+      const reviewToPr = new Map<string, string>(
+        [...latestReviewByPr.entries()].map(([prId, { reviewId }]) => [reviewId, prId]),
+      );
+      for (const f of findingRows) {
+        const prId = reviewToPr.get(f.reviewId);
+        if (!prId) continue;
+        const c = findingsCountByPr.get(prId) ?? { CRITICAL: 0, WARNING: 0, SUGGESTION: 0 };
+        if (f.severity === 'CRITICAL') c.CRITICAL++;
+        else if (f.severity === 'WARNING') c.WARNING++;
+        else if (f.severity === 'SUGGESTION') c.SUGGESTION++;
+        findingsCountByPr.set(prId, c);
       }
     }
 
@@ -181,6 +201,9 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
         updated_at: r.updatedAt?.toISOString() ?? null,
         score: review ? review.score : null,
         cost_usd: latestRoundCostByPr.get(r.id) ?? null,
+        findings_critical: findingsCountByPr.get(r.id)?.CRITICAL ?? null,
+        findings_warning: findingsCountByPr.get(r.id)?.WARNING ?? null,
+        findings_suggestion: findingsCountByPr.get(r.id)?.SUGGESTION ?? null,
       };
     });
   });

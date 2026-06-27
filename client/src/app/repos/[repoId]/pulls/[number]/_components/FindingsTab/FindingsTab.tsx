@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useCallback } from "react";
+import React, { useCallback, useMemo } from "react";
 import { Icon, Badge, Button, SectionLabel, EmptyState } from "@devdigest/ui";
 import { RunStatus } from "../RunStatus";
 import { RunHistory } from "../RunHistory/RunHistory";
 import { ReviewRunAccordion } from "../ReviewRunAccordion";
+import { SeverityFilterBar } from "../SeverityFilterBar/SeverityFilterBar";
 import { s } from "./styles";
 import type { FindingRecord, ReviewRecord, RunSummary, PrCommit } from "@devdigest/shared";
 import type { UseMutationResult } from "@tanstack/react-query";
@@ -62,6 +63,17 @@ export function FindingsTab({
     },
     [onDelete],
   );
+
+  const [sevFilter, setSevFilter] = React.useState<string | null>(null);
+
+  const severityCounts = useMemo(() => {
+    const all = runs.flatMap((r) => r.findings);
+    return {
+      CRITICAL: all.filter((f) => f.severity === "CRITICAL").length,
+      WARNING: all.filter((f) => f.severity === "WARNING").length,
+      SUGGESTION: all.filter((f) => f.severity === "SUGGESTION").length,
+    };
+  }, [runs]);
 
   // Timeline → Review-runs navigation: clicking an agent name in the timeline
   // opens + scrolls to that run's accordion below. The nonce re-triggers the
@@ -144,6 +156,13 @@ export function FindingsTab({
       >
         Review runs
       </SectionLabel>
+      {runs.length > 0 && (
+        <SeverityFilterBar
+          counts={severityCounts}
+          active={sevFilter}
+          onToggle={setSevFilter}
+        />
+      )}
       {runs.length === 0 ? (
         reviewRunning || liveRunIds.length > 0 ? null : (
           <EmptyState
@@ -164,6 +183,7 @@ export function FindingsTab({
             headSha={headSha}
             targetRunId={target?.runId ?? null}
             targetNonce={target?.n ?? 0}
+            severityFilter={sevFilter}
           />
         ))
       )}

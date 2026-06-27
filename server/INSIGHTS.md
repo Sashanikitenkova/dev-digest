@@ -38,11 +38,19 @@ _Nothing recorded yet._
 
 ## Recurring Errors & Fixes
 
-_Nothing recorded yet._
+### 2026-06-27 — [Context] Re-seeding won't refresh PR-level demo data if the PR row already exists
+
+`seed.ts` wraps the review + findings insert in `if (!pr)` (`server/src/db/seed.ts:98`). If the PR was already seeded and then an agent run added new reviews, `pnpm db:seed` silently skips the block. To fully reset: `DELETE FROM repos WHERE full_name = 'acme/payments-api'` (cascades to PRs, reviews, findings), then `pnpm db:seed`.
+
+### 2026-06-27 — [Context] `deriveReviewStatus` returns "reviewed" once `last_reviewed_sha = head_sha`
+
+Running an agent review sets `pull_requests.last_reviewed_sha` to the current `head_sha`, permanently overriding a seeded "needs_review" state. To restore "needs_review" without wiping reviews: `UPDATE pull_requests SET last_reviewed_sha = NULL WHERE number = 482`. Without this reset, re-seeding still shows the PR as "Reviewed" because the status is derived at query time, not stored. Evidence: `server/src/modules/pulls/status.ts`, `server/src/modules/pulls/routes.ts:173`.
 
 ## Session Notes
 
-_Nothing recorded yet._
+### 2026-06-27 — Added per-severity findings counts to PR list endpoint
+
+Extended `GET /repos/:id/pulls` to include `findings_critical`, `findings_warning`, `findings_suggestion` from the latest review per PR. Required a subquery joining `reviews → findings` grouped by severity. Both vendor copies (`server/src/vendor/shared/contracts/platform.ts` and `client/src/vendor/shared/contracts/platform.ts`) must be updated in sync — they are committed copies with no automated sync. New fields use `.nullish()` (consistent with `score`, `cost_usd`) so the detail route can omit them without breaking Zod serialization. Evidence: `server/src/modules/pulls/routes.ts:98`.
 
 ## Open Questions
 
