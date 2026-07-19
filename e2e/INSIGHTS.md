@@ -23,7 +23,20 @@ _Nothing recorded yet._
 
 ## Tool & Library Notes
 
-_Nothing recorded yet._
+### 2026-07-19 — [Gotcha] `find label "…"` can't reach most DevDigest form inputs — use `find placeholder`
+
+`agent-browser find label <text> fill <value>` resolves through a real
+label↔control association. The vendored `FormField`
+(`client/src/vendor/ui/kit/FormField.tsx:19`) renders its `<label>` as a
+*sibling* of the input with no `htmlFor` and no wrapping, so every field built
+with it (the skill editor's Name / Description / Skill body, and the agent
+editor's fields) is invisible to a `label` locator — the step fails with "not
+found" rather than filling the wrong element. Use `find placeholder "<substring
+of the i18n placeholder>" fill "…"` instead; placeholder matching is substring by
+default and reads the attribute, so it still works after the field has a value.
+Same caveat for `find role checkbox --name …`: the vendored `Checkbox` is a
+`role="checkbox"` button with no accessible name, so target it positionally
+(`find first "[role=checkbox]" click`). Evidence: `specs/08-skills.flow.json`.
 
 ## Recurring Errors & Fixes
 

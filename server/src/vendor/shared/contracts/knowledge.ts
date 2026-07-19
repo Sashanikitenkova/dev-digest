@@ -131,6 +131,33 @@ export const Skill = z.object({
 });
 export type Skill = z.infer<typeof Skill>;
 
+// Result of POST /skills/import/preview — a pure parse of an uploaded .md or
+// .zip. Nothing is persisted; the client shows this, and only a subsequent
+// POST /skills saves it. `skipped_files` lists archive entries the parser
+// refused to inflate (anything not ending in .md) — server-generated, so the
+// guarantee shown to the user is the same fact the parser acted on.
+export const SkillImportPreview = z.object({
+  name: z.string(),
+  description: z.string(),
+  type: SkillType,
+  body: z.string(),
+  source: SkillSource,
+  skipped_files: z.array(z.string()),
+});
+export type SkillImportPreview = z.infer<typeof SkillImportPreview>;
+
+// An immutable body snapshot from `skill_versions`. Mirrors `AgentVersion`,
+// but narrower: skills snapshot the BODY only, so name/description/type edits
+// never create one. Restoring an old body is a normal update that writes a
+// NEW version — history is append-only and never rewritten.
+export const SkillVersion = z.object({
+  skill_id: z.string(),
+  version: z.number().int(),
+  body: z.string(),
+  created_at: z.string(),
+});
+export type SkillVersion = z.infer<typeof SkillVersion>;
+
 export const CommunitySkill = z.object({
   name: z.string(),
   repo: z.string(),
@@ -195,6 +222,10 @@ export const AgentSkillLink = z.object({
   agent_id: z.string(),
   skill_id: z.string(),
   order: z.number().int(),
+  // Per-link switch: does this link contribute a prompt block at review time?
+  // Distinct from `Skill.enabled` (the skill itself); a review injects a block
+  // only when BOTH are true. Order is preserved while a link is disabled.
+  enabled: z.boolean(),
 });
 export type AgentSkillLink = z.infer<typeof AgentSkillLink>;
 

@@ -18,8 +18,18 @@ _Nothing recorded yet._
 _Nothing recorded yet._
 
 ## Codebase Patterns
+### 2026-07-19 — [Decision] The skill trust rule lives in `reviewer-core`, not in the server
 
-_Nothing recorded yet._
+`formatSkillBlocks` (`reviewer-core/src/prompt.ts:36`) — not the server module
+that resolves the DB rows — decides that a `source: 'manual'` skill renders as
+plain `### name\nbody` while every other source is wrapped via
+`wrapUntrusted('skill:<name>', body)`. It sits here because two callers need the
+identical rule: the studio server (skills from Postgres) and the CI runner
+(skills from the filesystem). Implementing it on the server side would let the
+two silently diverge, and the divergence would be a prompt-injection hole rather
+than a cosmetic bug. `assemblePrompt` is unchanged — it still just joins the
+`skills` slot. Evidence: `reviewer-core/src/prompt.ts:36`,
+`server/src/modules/reviews/run-executor.ts:351`.
 
 ## Tool & Library Notes
 

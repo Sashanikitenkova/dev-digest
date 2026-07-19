@@ -100,3 +100,9 @@ a CI artifact by `.github/workflows/e2e-web.yml`).
 | `05-pr-diff` | PR #482 → Files changed tab → seeded file renders in the diff viewer |
 | `06-onboarding` | `/onboarding` → add-repository form renders (no submit) |
 | `07-settings` | `/settings/api-keys` + `/settings/models` → section titles render |
+| `08-skills` | `/skills` seeded cards → create from scratch → edit body → Versions v2 → agent Skills tab → per-link toggle off/on |
+
+> `08-skills` is the one flow that writes: it creates a skill named
+> `e2e-skill-08` (nothing else reads it) and toggles one seeded agent-skill link
+> off and back on, restoring it in the final step. Run it last (lexical order
+> already does) and prefer the hermetic runner, which throws the DB away anyway.

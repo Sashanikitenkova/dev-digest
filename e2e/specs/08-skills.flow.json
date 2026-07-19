@@ -1,0 +1,49 @@
+{
+  "name": "Skills: create → edit → linked skills render → per-link toggle",
+  "description": "Drives the Skills Lab end to end without an LLM. Confirms /skills lists the seeded skills, creates a skill from scratch, edits its body twice so the Versions tab shows v2, then opens Test Quality Reviewer's Skills tab and flips one link's checkbox off and back on. The only state this flow leaves behind is one extra skill named 'e2e-skill-08' (nothing else reads it); the agent link it toggles is restored to enabled in the last step, so flows 01-07 and a re-seed are unaffected. Deterministic locators only (--url / --text / find role|text|label) — no AI chat command, no model call.",
+  "steps": [
+    { "cmd": ["open", "{BASE}/skills"], "label": "load the skills list" },
+    { "cmd": ["wait", "--url", "/skills"], "label": "skills route reached" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "skills fetch settles" },
+    { "cmd": ["wait", "--text", "test-coverage-nudge"], "label": "seeded skill card is visible" },
+    { "cmd": ["wait", "--text", "flaky-test-patterns"], "label": "seeded community-source skill is visible" },
+
+    { "cmd": ["find", "placeholder", "Search skills", "fill", "api-contract"], "label": "filter the grid" },
+    { "cmd": ["wait", "--text", "api-contract-guard"], "label": "search matches the seeded rubric skill" },
+    { "cmd": ["open", "{BASE}/skills"], "label": "reload the unfiltered list" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "skills fetch settles again" },
+
+    { "cmd": ["find", "role", "button", "click", "--name", "Add Skill"], "label": "open the Add Skill menu" },
+    { "cmd": ["find", "text", "Create from scratch", "click"], "label": "choose create-from-scratch" },
+    { "cmd": ["wait", "--url", "/skills/"], "label": "navigate to the new skill's editor" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "skill editor data settles" },
+    { "cmd": ["wait", "--text", "Untitled skill"], "label": "the scratch skill was created and opened" },
+    { "cmd": ["find", "placeholder", "pr-quality-rubric", "fill", "e2e-skill-08"], "label": "name the new skill" },
+    { "cmd": ["find", "placeholder", "Rubric for evaluating", "fill", "Created by the e2e skills flow."], "label": "describe the new skill" },
+    { "cmd": ["find", "placeholder", "Describe the rule", "fill", "# E2E skill\nReport nothing; this body exists only to be versioned."], "label": "write the skill body" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Save"], "label": "save the new skill" },
+    { "cmd": ["wait", "--text", "e2e-skill-08"], "label": "the create is persisted and the list refreshed" },
+
+    { "cmd": ["find", "placeholder", "Describe the rule", "fill", "# E2E skill (edited)\nStill report nothing — the body changed, so this is a new version."], "label": "edit the skill body" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Save"], "label": "save the changed body" },
+    { "cmd": ["wait", "--text", "v2"], "label": "the changed body was snapshotted as a new version" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Versions"], "label": "switch to the Versions tab" },
+    { "cmd": ["wait", "--text", "Every saved change to the body is snapshotted"], "label": "version history renders" },
+
+    { "cmd": ["open", "{BASE}/agents"], "label": "load the agents page" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "agents fetch settles" },
+    { "cmd": ["find", "text", "Test Quality Reviewer", "click"], "label": "open the seeded Test Quality Reviewer" },
+    { "cmd": ["wait", "--url", "/agents/"], "label": "agent editor route reached" },
+    { "cmd": ["find", "role", "button", "click", "--name", "Skills"], "label": "switch to the agent's Skills tab" },
+    { "cmd": ["wait", "--url", "tab=skills"], "label": "skills tab is active in the URL" },
+    { "cmd": ["wait", "--load", "networkidle"], "label": "linked skills settle" },
+    { "cmd": ["wait", "--text", "test-coverage-nudge"], "label": "seeded link order 0 renders first" },
+    { "cmd": ["wait", "--text", "pr-quality-rubric"], "label": "the shared rubric skill is linked to this agent too" },
+    { "cmd": ["wait", "--text", "3 of 3 enabled"], "label": "all three seeded links start enabled" },
+
+    { "cmd": ["find", "first", "[role=checkbox]", "click"], "label": "disable the first link" },
+    { "cmd": ["wait", "--text", "2 of 3 enabled"], "label": "the per-link toggle persisted as disabled" },
+    { "cmd": ["find", "first", "[role=checkbox]", "click"], "label": "re-enable the first link" },
+    { "cmd": ["wait", "--text", "3 of 3 enabled"], "label": "seeded link state restored for the next run" }
+  ]
+}

@@ -10,4 +10,6 @@ export const routes = {
   pulls: (repoId: string) => `/repos/${repoId}/pulls`,
   pull: (repoId: string, number: number | string) => `/repos/${repoId}/pulls/${number}`,
   agent: (id: string) => `/agents/${id}`,
+  skills: () => "/skills",
+  skill: (id: string) => `/skills/${id}`,
 } as const;

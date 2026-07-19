@@ -138,7 +138,42 @@ export class AgentsService {
   /** Linked skills for an agent as AgentSkillLink[] (ordered). */
   async skillLinks(agentId: string): Promise<AgentSkillLink[]> {
     const links = await this.repo.linkedSkills(agentId);
-    return links.map((l) => ({ agent_id: agentId, skill_id: l.skill.id, order: l.order }));
+    return links.map((l) => ({
+      agent_id: agentId,
+      skill_id: l.skill.id,
+      order: l.order,
+      enabled: l.enabled,
+    }));
+  }
+
+  /**
+   * Patch ONE link: toggle whether it contributes a prompt block, and/or move it
+   * in the order. Returns the full ordered link set (so the editor re-renders
+   * from server truth), or undefined when the agent isn't in this workspace or
+   * the skill isn't linked to it (route → 404).
+   */
+  async updateSkillLink(
+    workspaceId: string,
+    agentId: string,
+    skillId: string,
+    patch: { enabled?: boolean; order?: number },
+  ): Promise<AgentSkillLink[] | undefined> {
+    const agent = await this.repo.getById(workspaceId, agentId);
+    if (!agent) return undefined;
+
+    let found = false;
+    if (patch.enabled !== undefined) {
+      found = (await this.repo.setSkillEnabled(agentId, skillId, patch.enabled)) || found;
+    }
+    if (patch.order !== undefined) {
+      found = (await this.repo.setSkillOrder(agentId, skillId, patch.order)) || found;
+    }
+    // Neither field given → nothing to write; still 404 if the link is absent.
+    if (patch.enabled === undefined && patch.order === undefined) {
+      found = (await this.repo.linkedSkills(agentId)).some((l) => l.skill.id === skillId);
+    }
+    if (!found) return undefined;
+    return this.skillLinks(agentId);
   }
 
   /**

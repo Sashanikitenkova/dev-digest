@@ -46,6 +46,12 @@ export interface UpdateAgent {
 export interface LinkedSkillRow {
   skill: typeof t.skills.$inferSelect;
   order: number;
+  /**
+   * The LINK's switch (`agent_skills.enabled`), not the skill's own `enabled`.
+   * A review injects a prompt block only when BOTH are true; the link keeps its
+   * `order` while disabled so re-enabling restores its position.
+   */
+  enabled: boolean;
 }
 
 export class AgentsRepository {
@@ -191,12 +197,16 @@ export class AgentsRepository {
   /** Skills linked to an agent, in `order` ascending. */
   async linkedSkills(agentId: string): Promise<LinkedSkillRow[]> {
     const rows = await this.db
-      .select({ skill: t.skills, order: t.agentSkills.order })
+      .select({
+        skill: t.skills,
+        order: t.agentSkills.order,
+        enabled: t.agentSkills.enabled,
+      })
       .from(t.agentSkills)
       .innerJoin(t.skills, eq(t.agentSkills.skillId, t.skills.id))
       .where(eq(t.agentSkills.agentId, agentId))
       .orderBy(asc(t.agentSkills.order));
-    return rows.map((r) => ({ skill: r.skill, order: r.order }));
+    return rows.map((r) => ({ skill: r.skill, order: r.order, enabled: r.enabled }));
   }
 
   async skillIdsForAgent(agentId: string): Promise<string[]> {
@@ -225,12 +235,55 @@ export class AgentsRepository {
    * Replace the full set of linked skills for an agent with `skillIds`, assigning
    * order = index. Used by the "Skills" editor tab (attach/reorder). Skills not in
    * the list are unlinked.
+   *
+   * Reordering must NOT silently re-enable a link the user turned off: the
+   * implementation is delete-then-insert, so the existing `enabled` flags are
+   * read first and re-applied per skill (newly-added skills default to true).
+   * The whole swap runs in one transaction — otherwise a failure between the
+   * delete and the insert would drop every link.
    */
   async setSkills(agentId: string, skillIds: string[]): Promise<void> {
-    await this.db.delete(t.agentSkills).where(eq(t.agentSkills.agentId, agentId));
-    if (skillIds.length === 0) return;
-    await this.db
-      .insert(t.agentSkills)
-      .values(skillIds.map((skillId, i) => ({ agentId, skillId, order: i })));
+    await this.db.transaction(async (tx) => {
+      const existing = await tx
+        .select({ skillId: t.agentSkills.skillId, enabled: t.agentSkills.enabled })
+        .from(t.agentSkills)
+        .where(eq(t.agentSkills.agentId, agentId));
+      const enabledBySkill = new Map(existing.map((r) => [r.skillId, r.enabled]));
+
+      await tx.delete(t.agentSkills).where(eq(t.agentSkills.agentId, agentId));
+      if (skillIds.length === 0) return;
+      await tx.insert(t.agentSkills).values(
+        skillIds.map((skillId, i) => ({
+          agentId,
+          skillId,
+          order: i,
+          enabled: enabledBySkill.get(skillId) ?? true,
+        })),
+      );
+    });
+  }
+
+  /**
+   * Toggle a single link's `enabled` flag (the agent editor's per-skill
+   * checkbox). Returns false when no such link exists, so the route can 404
+   * instead of silently succeeding.
+   */
+  async setSkillEnabled(agentId: string, skillId: string, enabled: boolean): Promise<boolean> {
+    const rows = await this.db
+      .update(t.agentSkills)
+      .set({ enabled })
+      .where(and(eq(t.agentSkills.agentId, agentId), eq(t.agentSkills.skillId, skillId)))
+      .returning({ skillId: t.agentSkills.skillId });
+    return rows.length > 0;
+  }
+
+  /** Move an existing link to a new `order`. False when the link doesn't exist. */
+  async setSkillOrder(agentId: string, skillId: string, order: number): Promise<boolean> {
+    const rows = await this.db
+      .update(t.agentSkills)
+      .set({ order })
+      .where(and(eq(t.agentSkills.agentId, agentId), eq(t.agentSkills.skillId, skillId)))
+      .returning({ skillId: t.agentSkills.skillId });
+    return rows.length > 0;
   }
 }

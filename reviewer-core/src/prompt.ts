@@ -33,6 +33,40 @@ export function wrapUntrusted(label: string, content: string): string {
   return `<untrusted source="${label}">\n${safe}\n</untrusted>`;
 }
 
+/** One linked skill resolved into a prompt block. */
+export interface SkillBlock {
+  /** The skill's name — becomes the block heading and the untrusted label. */
+  name: string;
+  /** The skill's markdown body. */
+  body: string;
+  /**
+   * True only for skills the workspace authored itself (`source: 'manual'`).
+   * Imported / community / extracted bodies are someone else's instructions
+   * landing inside the agent's prompt — they are DATA, never instructions.
+   */
+  trusted: boolean;
+}
+
+/**
+ * Render linked skills into the `## Skills / rules` blocks consumed by
+ * `assemblePrompt`'s `skills` slot.
+ *
+ * Trusted  → `### <name>\n<body>` (instructions the agent may follow).
+ * Untrusted→ `### <name>\n` + `<untrusted source="skill:<name>">…</untrusted>`,
+ * so the shared INJECTION_GUARD already covers them.
+ *
+ * This lives in reviewer-core (not the server) so the studio server and the
+ * CI runner — which resolves skills from the filesystem — apply the SAME trust
+ * rule. Duplicating it on one side is how the two silently diverge.
+ */
+export function formatSkillBlocks(skills: SkillBlock[]): string[] {
+  return skills.map((s) =>
+    s.trusted
+      ? `### ${s.name}\n${s.body}`
+      : `### ${s.name}\n${wrapUntrusted(`skill:${s.name}`, s.body)}`,
+  );
+}
+
 /** Cap the PR description so a huge author body can't blow the token budget. */
 const MAX_PR_DESCRIPTION_CHARS = 4000;
 

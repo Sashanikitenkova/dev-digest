@@ -1,6 +1,6 @@
 import type { Container } from '../../platform/container.js';
 import type { Provider, Review, RunTrace, UnifiedDiff } from '@devdigest/shared';
-import { reviewPullRequest, countBlockers } from '@devdigest/reviewer-core';
+import { reviewPullRequest, countBlockers, formatSkillBlocks } from '@devdigest/reviewer-core';
 import { RunLogger } from '../../platform/run-logger.js';
 import * as schema from '../../db/schema.js';
 import type { AgentRow } from '../../db/rows.js';
@@ -153,6 +153,10 @@ export class ReviewRunExecutor {
 
     runLog.info(`Starting review with agent "${agent.name}" (${agent.provider}/${agent.model})`);
 
+    // Hoisted out of the try so the failure-path trace below can report the
+    // skills that WERE assembled, instead of a hardcoded null.
+    let skillBlocks: string[] = [];
+
     try {
       // Resolve the agent's LLM provider. (container.llm throws if the provider
       // key is missing — caught below and persisted as a failed run.)
@@ -184,6 +188,10 @@ export class ReviewRunExecutor {
 
       const task = taskLine(pull) + rankNote;
 
+      // Linked skills → prompt blocks. Best-effort like the other enrichments:
+      // a skills lookup failure must not fail the review.
+      skillBlocks = await this.buildSkillBlocks(agent, runLog);
+
       // ---- Engine: assemble → single-pass → grounding -----------------------
       // The pure review pipeline lives in @devdigest/reviewer-core (shared with
       // the CI runner). The service owns only I/O: repo-intel context resolution
@@ -201,6 +209,10 @@ export class ReviewRunExecutor {
         ...(callersDigest ? { callers: callersDigest } : {}),
         // T3 — repo skeleton, same omit-when-empty contract.
         ...(repoMap ? { repoMap } : {}),
+        // Linked + enabled skills, in link order. Same omit-when-empty contract:
+        // no blocks → assembly.skills stays null → the trace drawer hides the
+        // `Skills / rules` section entirely.
+        ...(skillBlocks.length ? { skills: skillBlocks } : {}),
         // PR author's description/body — untrusted; assemblePrompt wraps +
         // truncates it. Omitted when the PR has no body.
         ...(pull.body ? { prDescription: pull.body } : {}),
@@ -310,11 +322,65 @@ export class ReviewRunExecutor {
         })
         .catch(() => undefined);
       await this.repo
-        .saveRunTrace(runId, this.traceFromBuffer(runId, pull, agent, '0/0 passed', Date.now() - start))
+        .saveRunTrace(
+          runId,
+          this.traceFromBuffer(runId, pull, agent, '0/0 passed', Date.now() - start, skillBlocks),
+        )
         .catch(() => undefined);
       this.container.runBus.complete(runId);
       throw err;
     }
+  }
+
+  /**
+   * Resolve the agent's linked skills into `## Skills / rules` prompt blocks.
+   *
+   * A link contributes a block only when BOTH switches are on: the LINK's
+   * `agent_skills.enabled` (the agent editor's per-skill checkbox) and the
+   * SKILL's own `skills.enabled` (the Skills Lab toggle). Order is the link
+   * order, which is what makes drag-to-reorder change the assembled prompt.
+   *
+   * Trust: only `source: 'manual'` bodies — authored in this workspace — are
+   * passed as instructions. Imported / community / extracted bodies go through
+   * `formatSkillBlocks` as untrusted DATA (delimiter-wrapped, covered by the
+   * shared INJECTION_GUARD). The rule lives in reviewer-core so the CI runner
+   * applies the identical boundary.
+   *
+   * Returns [] on any failure — a skills lookup must never fail a review.
+   */
+  private async buildSkillBlocks(agent: AgentRow, runLog: RunLogger): Promise<string[]> {
+    let links;
+    try {
+      links = await this.agents.linkedSkills(agent.id);
+    } catch (err) {
+      runLog.info(`skills: lookup failed — ${(err as Error).message}`);
+      return [];
+    }
+
+    // linkedSkills already returns `order` ascending.
+    const active = links.filter((l) => l.enabled && l.skill.enabled);
+    if (active.length === 0) {
+      if (links.length > 0) {
+        runLog.info(`skills: 0 of ${links.length} linked skill(s) enabled — no skill blocks added`);
+      }
+      return [];
+    }
+
+    const blocks = formatSkillBlocks(
+      active.map((l) => ({
+        name: l.skill.name,
+        body: l.skill.body,
+        trusted: l.skill.source === 'manual',
+      })),
+    );
+
+    const untrusted = active.filter((l) => l.skill.source !== 'manual').length;
+    runLog.info(
+      `skills: ${active.length} of ${links.length} linked skill(s) injected — ` +
+        `${active.map((l) => l.skill.name).join(', ')}` +
+        (untrusted > 0 ? ` (${untrusted} untrusted, delimiter-wrapped)` : ''),
+    );
+    return blocks;
   }
 
   /**
@@ -415,6 +481,13 @@ export class ReviewRunExecutor {
     agent: AgentRow,
     grounding: string,
     durationMs = 0,
+    /**
+     * Skill blocks resolved before the failure, if we got that far. Joined the
+     * same way `assemblePrompt` joins them, so a failed run's trace shows the
+     * same `Skills / rules` content a successful one would have. Empty → null,
+     * matching assemblePrompt's omit-when-empty contract.
+     */
+    skillBlocks: string[] = [],
   ): RunTrace {
     return {
       config: {
@@ -426,7 +499,13 @@ export class ReviewRunExecutor {
         source: 'local',
       },
       stats: { duration_ms: durationMs, tokens_in: 0, tokens_out: 0, cost_usd: null, findings: 0, grounding },
-      prompt_assembly: { system: agent.systemPrompt, skills: null, memory: null, specs: null, user: '' },
+      prompt_assembly: {
+        system: agent.systemPrompt,
+        skills: skillBlocks.length > 0 ? skillBlocks.join('\n\n') : null,
+        memory: null,
+        specs: null,
+        user: '',
+      },
       tool_calls: [],
       raw_output: '',
       memory_pulled: [],

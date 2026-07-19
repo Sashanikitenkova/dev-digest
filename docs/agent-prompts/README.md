@@ -9,10 +9,22 @@ in the DB). The canonical, reviewable copies live next to this file:
 - [`general-reviewer.md`](./general-reviewer.md)
 - [`security-reviewer.md`](./security-reviewer.md)
 - [`performance-reviewer.md`](./performance-reviewer.md)
+- [`test-quality-reviewer.md`](./test-quality-reviewer.md)
+- [`api-contract-reviewer.md`](./api-contract-reviewer.md)
 
 > The DB is the source of truth at run time. These files are the human-readable
 > originals — when you change a prompt, edit the file here **and** push it to the
 > agent (`PUT /agents/:id`, which versions the change into `agent_versions`).
+
+**Prompt or skill?** A rule that belongs to *one* agent's identity ("you are a
+security engineer, here is your severity rubric") lives in the system prompt, i.e.
+in one of the files above. A rule that more than one agent should share — or that
+you want to version, preview, and toggle on its own — belongs in a **skill**
+(`skills` table, linked via `agent_skills`), which the engine injects into the
+`## Skills / rules` section of the user message. The seeded skills' bodies live in
+`server/src/db/seed-prompts.ts` next to the seeded system prompts; unlike these
+files, a skill's DB row is editable in the UI and snapshotted into
+`skill_versions` on every body change.
 
 ## How a prompt is assembled
 

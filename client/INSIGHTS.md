@@ -10,14 +10,34 @@ for entry format and the append-only rule. Sections are fixed; don't add,
 remove, or rename them.
 
 ## What Works
+### 2026-07-19 — [Pattern] Optimistic drag-reorder needs `setQueryData`, not `invalidateQueries`
 
-_Nothing recorded yet._
+`SkillsTab` holds local order state and resets it during render via a
+`syncedFrom` sentinel whenever the memoized server view changes. That only stays
+flicker-free because `useSetAgentSkills` writes the server's response straight
+into the cache with `setQueryData` — the reorder endpoint returns the canonical
+ordered link set, so there is nothing to re-fetch. Switching it to
+`invalidateQueries` round-trips and visibly snaps the rows back to the old order
+before settling. Evidence:
+`client/src/app/agents/[id]/_components/AgentEditor/_components/SkillsTab/SkillsTab.tsx`,
+`client/src/lib/hooks/agents.ts`.
 
 ## What Doesn't Work
 
 ### 2026-06-27 — [Mistake] `@testing-library/user-event` is not installed — use `fireEvent` instead
 
 Importing `userEvent` from `@testing-library/user-event` in a test file throws "Failed to resolve import" at build time. The client package only has `@testing-library/react` (which includes `fireEvent`). Use `fireEvent.click(el)` for interaction tests; `userEvent` would need a separate `pnpm add`. Evidence: `client/src/app/repos/[repoId]/pulls/[number]/_components/SeverityFilterBar/SeverityFilterBar.test.tsx:3`.
+
+### 2026-07-19 — [Mistake] Creating a skill with an empty `body` 400s — seed a starter scaffold
+
+The "Create from scratch" path first posted `body: ""`, which fails server-side
+Zod: `POST /skills` declares `body: z.string().min(1)`
+(`server/src/modules/skills/routes.ts:36`). The fix is a starter markdown
+scaffold (`editor.newSkillBody`) rather than relaxing the server guard — an
+empty skill body is meaningless, and the scaffold gives the author something to
+edit. Any future "create blank X" button should check the server's `min(1)`
+constraints first. Evidence:
+`client/src/app/skills/_components/SkillsListView/SkillsListView.tsx:44`.
 
 ## Codebase Patterns
 
@@ -46,6 +66,18 @@ For the `SeverityFilterBar` filter, state lives in `FindingsTab` (aggregates cou
 ### 2026-06-27 — [Context] PR list header row needs `whiteSpace: "nowrap"` or long column labels wrap
 
 `headRow` in `styles.ts` uses a fixed `gridTemplateColumns` grid. Without `whiteSpace: "nowrap"`, the "PULL REQUEST" label wraps to two lines and the last column ("UPDATED") gets truncated when the table is near full viewport width. Sidebar width is also a factor — reducing it from 264 px to 210 px gained enough space to fit all 8 columns without overflow. Evidence: `client/src/app/repos/[repoId]/pulls/styles.ts:95`, `client/src/vendor/ui/shell/Sidebar.tsx:13`.
+
+### 2026-07-19 — [Context] A component can only use i18n keys from the namespace its tests provide
+
+`RunTraceDrawer/PromptBlock` renders under `useTranslations("runs")`, and
+`RunTraceDrawer.test.tsx` wires its `NextIntlClientProvider` with the `runs`
+namespace *only*. Reaching into another namespace (e.g. `skills.tokens.badge`)
+compiles fine but throws `MISSING_MESSAGE` in that existing test. The `~N tokens`
+badge therefore calls `formatTokenEstimate` from `lib/tokens.ts` directly, which
+already returns the exact display string. Widening a component's namespace means
+updating every test provider that mounts it. Evidence:
+`client/src/components/RunTraceDrawer/PromptBlock/PromptBlock.tsx`,
+`client/src/lib/tokens.ts`.
 
 ## Recurring Errors & Fixes
 

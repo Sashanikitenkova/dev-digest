@@ -5,8 +5,23 @@
 import React from "react";
 import { useTranslations } from "next-intl";
 import { Button, Icon, Modal } from "@devdigest/ui";
+import { formatTokenEstimate } from "@/lib/tokens";
 import { s } from "../styles";
 import { PromptModalBody } from "../PromptModalBody";
+
+/* Rough (chars/4) estimate, not the model's tokenizer — see lib/tokens.ts. It
+   is what makes "which block cost what" legible per-block; the exact totals for
+   the whole run are the Stats section's tokens_in/tokens_out. */
+const tokenBadgeStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontVariantNumeric: "tabular-nums",
+  color: "var(--text-muted)",
+  border: "1px solid var(--border)",
+  background: "var(--bg-elevated)",
+  borderRadius: 5,
+  padding: "2px 6px",
+  whiteSpace: "nowrap",
+};
 
 const miniBtnStyle: React.CSSProperties = {
   display: "inline-flex",
@@ -36,6 +51,7 @@ export function PromptBlock({ label, text, color }: { label: string; text: strin
         <span style={s.promptDot(color)} />
         <span style={s.promptLabel}>{label}</span>
         <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={tokenBadgeStyle}>{formatTokenEstimate(text)}</span>
           <button
             type="button"
             title={t("trace.prompt.copy")}
