@@ -8,6 +8,7 @@ import { useTranslations } from "next-intl";
 import { Button, Dropdown, EmptyState, ErrorState, Skeleton, Icon } from "@devdigest/ui";
 import { AppShell } from "../../../../components/app-shell";
 import { useAgents, useUpdateAgent } from "../../../../lib/hooks/agents";
+import { routes } from "../../../../lib/routes";
 import { AgentCard } from "../AgentCard";
 import { CreateAgentModal } from "./_components/CreateAgentModal";
 import { TEMPLATES } from "./constants";
@@ -86,7 +87,7 @@ export function AgentsListView() {
               <AgentCard
                 key={a.id}
                 ag={a}
-                onClick={() => router.push(`/agents/${a.id}?tab=config`)}
+                onClick={() => router.push(`${routes.agent(a.id)}?tab=config`)}
                 onToggle={(enabled) => update.mutate({ id: a.id, patch: { enabled } })}
               />
             ))}

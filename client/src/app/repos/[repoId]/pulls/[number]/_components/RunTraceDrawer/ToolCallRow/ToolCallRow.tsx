@@ -5,7 +5,7 @@ import React from "react";
 import { useTranslations } from "next-intl";
 import { Icon } from "@devdigest/ui";
 import type { ToolCall } from "@devdigest/shared";
-import { s } from "../../styles";
+import { s } from "../styles";
 
 export function ToolCallRow({ tc }: { tc: ToolCall }) {
   const t = useTranslations("runs");

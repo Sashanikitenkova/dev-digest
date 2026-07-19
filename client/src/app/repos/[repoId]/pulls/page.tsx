@@ -2,8 +2,7 @@
    GET /repos/:id/pulls (F1). Filters/sort live in query (?status&sort). */
 "use client";
 
-import React from "react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import {
   Skeleton,
@@ -18,6 +17,7 @@ import { useActiveRepo, useRepoNotFound } from "@/lib/repo-context";
 import { ApiError } from "@/lib/api";
 import { COLUMN_KEYS, SKELETON_ROWS } from "./constants";
 import { s } from "./styles";
+import { usePrListFilters } from "./usePrListFilters";
 import { PRRow } from "./_components/PRRow";
 import { FilterBar } from "./_components/FilterBar";
 
@@ -28,34 +28,16 @@ export default function PullsPage() {
   const t = useTranslations("prReview");
   const params = useParams<{ repoId: string }>();
   const repoId = params.repoId;
-  const search = useSearchParams();
-  const router = useRouter();
   const { activeRepo } = useActiveRepo();
   const repoNotFound = useRepoNotFound(repoId);
   const { data: pulls, isLoading, isError, error, refetch } = usePulls(repoId);
   const refresh = useRefreshRepo();
 
-  // Default to "needs review" — the most actionable filter on open.
-  const status = search.get("status") ?? "needs_review";
-  const setStatus = (k: string) => {
-    const sp = new URLSearchParams(search.toString());
-    sp.set("status", k); // always explicit so "all" sticks over the needs_review default
-    router.replace(`/repos/${repoId}/pulls?${sp.toString()}`);
-  };
+  const { status, setStatus, query, setQuery, sort, setSort, filtered } = usePrListFilters(
+    repoId,
+    pulls,
+  );
 
-  const [query, setQuery] = React.useState("");
-  const [sort, setSort] = React.useState("newest");
-
-  const q = query.trim().toLowerCase();
-  const filtered = (pulls ?? [])
-    .filter((p) => status === "all" || p.status === status)
-    .filter((p) => !q || p.title.toLowerCase().includes(q) || String(p.number).includes(q))
-    .slice()
-    .sort((a, b) => {
-      const ta = Date.parse(a.updated_at ?? "") || 0;
-      const tb = Date.parse(b.updated_at ?? "") || 0;
-      return sort === "oldest" ? ta - tb : tb - ta;
-    });
   const repoName = activeRepo?.full_name ?? repoId;
   const openCount = (pulls ?? []).filter((p) => OPEN_STATUSES.has(p.status)).length;
   const needsReviewCount = (pulls ?? []).filter((p) => p.status === "needs_review").length;

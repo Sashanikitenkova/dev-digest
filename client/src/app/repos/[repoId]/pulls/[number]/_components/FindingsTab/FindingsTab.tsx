@@ -6,6 +6,7 @@ import { RunStatus } from "../RunStatus";
 import { RunHistory } from "../RunHistory/RunHistory";
 import { ReviewRunAccordion } from "../ReviewRunAccordion";
 import { SeverityFilterBar } from "../SeverityFilterBar/SeverityFilterBar";
+import { countBySeverity } from "./helpers";
 import { s } from "./styles";
 import type { FindingRecord, ReviewRecord, RunSummary, PrCommit } from "@devdigest/shared";
 import type { UseMutationResult } from "@tanstack/react-query";
@@ -66,14 +67,7 @@ export function FindingsTab({
 
   const [sevFilter, setSevFilter] = React.useState<string | null>(null);
 
-  const severityCounts = useMemo(() => {
-    const all = runs.flatMap((r) => r.findings);
-    return {
-      CRITICAL: all.filter((f) => f.severity === "CRITICAL").length,
-      WARNING: all.filter((f) => f.severity === "WARNING").length,
-      SUGGESTION: all.filter((f) => f.severity === "SUGGESTION").length,
-    };
-  }, [runs]);
+  const severityCounts = useMemo(() => countBySeverity(runs), [runs]);
 
   // Timeline → Review-runs navigation: clicking an agent name in the timeline
   // opens + scrolls to that run's accordion below. The nonce re-triggers the

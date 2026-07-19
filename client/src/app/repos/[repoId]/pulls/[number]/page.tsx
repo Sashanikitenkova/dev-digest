@@ -20,6 +20,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { usePrReviews, useCancelRun, usePrActiveRuns, usePrRuns, useDeleteRun } from "../../../../../lib/hooks/reviews";
 import { useActiveRepo, useRepoNotFound } from "../../../../../lib/repo-context";
 import { ApiError } from "../../../../../lib/api";
+import { routes } from "../../../../../lib/routes";
 import { githubPrUrl } from "../../../../../lib/github-urls";
 import type { FindingRecord } from "@devdigest/shared";
 
@@ -63,7 +64,7 @@ export default function PRDetailPage() {
     const sp = new URLSearchParams(search.toString());
     if (val == null) sp.delete(key);
     else sp.set(key, val);
-    router.replace(`/repos/${repoId}/pulls/${number}${sp.toString() ? `?${sp.toString()}` : ""}`);
+    router.replace(`${routes.pull(repoId, number)}${sp.toString() ? `?${sp.toString()}` : ""}`);
   };
   const setTab = (t: string) => setParam("tab", t);
 
@@ -81,8 +82,8 @@ export default function PRDetailPage() {
   // github.com deep-links for the header and finding file references.
   const repoFullName = activeRepo?.full_name ?? null;
   const crumb = [
-    { label: repoName, mono: true, href: `/repos/${repoId}/pulls` },
-    { label: "Pull Requests", href: `/repos/${repoId}/pulls` },
+    { label: repoName, mono: true, href: routes.pulls(repoId) },
+    { label: "Pull Requests", href: routes.pulls(repoId) },
     { label: `#${number}`, mono: true },
   ];
 

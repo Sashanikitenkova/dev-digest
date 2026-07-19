@@ -5,7 +5,7 @@
 import React from "react";
 import { useTranslations } from "next-intl";
 import { Button, Icon, Modal } from "@devdigest/ui";
-import { s } from "../../styles";
+import { s } from "../styles";
 import { PromptModalBody } from "../PromptModalBody";
 
 const miniBtnStyle: React.CSSProperties = {

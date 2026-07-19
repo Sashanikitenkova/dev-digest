@@ -3,7 +3,7 @@
 
 import React from "react";
 import { Icon } from "@devdigest/ui";
-import { s } from "../../styles";
+import { s } from "../styles";
 
 export function TraceSection({
   icon,

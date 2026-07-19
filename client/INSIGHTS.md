@@ -25,6 +25,18 @@ Importing `userEvent` from `@testing-library/user-event` in a test file throws "
 
 `formatCost` (`client/src/lib/cost.ts:11`) picks precision by value, not by caller: `null` → `"–"`, `0` → `"$0.00"`, `>= 0.01` → 3dp, `< 0.01` → 4dp. `RunCostBadge` (`client/src/components/RunCostBadge/RunCostBadge.tsx`) builds on it for the PR-list (`variant="compact"`) and Agent-Runs-timeline (`variant="withTokens"`) surfaces; the Run Trace drawer's `Stat` card calls `formatCost` directly. This is a deliberate change from the feature's original (pre-removal) shape, which had a *separate* 2-decimal `formatCost` living only inside `RunTraceDrawer/helpers.ts` — single-surface, not shared. One consequence: the drawer's COST stat now renders `$0.060` instead of the old hardcoded `$0.06` for the same value, since it goes through the same 3dp-or-4dp rule as everywhere else.
 
+### 2026-07-18 — [Decision] Client-first architecture (all routes `"use client"`) is deliberate, not drift
+
+Every `app/**/page.tsx` is a Client Component with no Server Component data fetching anywhere in `client/` — the app talks to one local Fastify API purely via TanStack Query (`src/lib/hooks/*`). Audited against the `.claude/skills/frontend-architecture` skill and confirmed intentional: mixing server- and client-fetched data would add two caching/hydration models for uncertain payoff on a local-first internal tool. Documented in `client/CLAUDE.md`. Don't convert a page to a Server Component without discussing it first.
+
+### 2026-07-18 — [Pattern] Client-side navigation targets are centralized in `lib/routes.ts`
+
+Added after an audit found the same `/repos/${repoId}/pulls`-style template literals duplicated raw across 9+ files. `lib/routes.ts` exports typed builder functions (`routes.pulls(repoId)`, `routes.pull(repoId, number)`, `routes.agent(id)`, `routes.settings(section)`, etc.) for every `router.push`/`router.replace`/`<Link href>`/breadcrumb target. API resource paths are a separate, already-centralized concern (`lib/api.ts` + `lib/hooks/*`) and were left untouched. New navigation code should add a builder here rather than inlining a template literal. Evidence: `client/src/lib/routes.ts`.
+
+### 2026-07-18 — [Pattern] Framework-agnostic data-layer logic lives in `lib/services/`
+
+`lib/services/runEventsSource.ts` (raw `EventSource` wiring, extracted from `useRunEvents`) and `lib/services/pollingPolicy.ts` (the `refetchInterval` predicates for `usePrActiveRuns`/`usePrRuns`) hold logic that needs to be testable independent of React. Hooks in `lib/hooks/*` should stay thin React-state glue over a `lib/services/*` function once hook-internal logic gets complex enough to want isolated unit tests. Evidence: `client/src/lib/hooks/reviews.ts`.
+
 ## Tool & Library Notes
 
 ### 2026-06-27 — [Pattern] Severity filter as optional prop threaded top-down, not via context

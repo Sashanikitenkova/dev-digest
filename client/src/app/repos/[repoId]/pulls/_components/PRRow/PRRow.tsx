@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Icon, Avatar, Badge, CircularScore } from "@devdigest/ui";
 import type { PrMeta } from "@/lib/types";
+import { routes } from "@/lib/routes";
 import { RunCostBadge } from "@/components/RunCostBadge";
 import { SIZE_COLOR, STATUS_META } from "../../constants";
 import { relativeTime, sizeOf } from "../../helpers";
@@ -22,7 +23,7 @@ export function PRRow({ pr, repoId }: { pr: PrMeta; repoId: string }) {
     <div
       onMouseEnter={() => setH(true)}
       onMouseLeave={() => setH(false)}
-      onClick={() => router.push(`/repos/${repoId}/pulls/${pr.number}`)}
+      onClick={() => router.push(routes.pull(repoId, pr.number))}
       style={s.row(h)}
     >
       <div style={s.rowTitleCell}>

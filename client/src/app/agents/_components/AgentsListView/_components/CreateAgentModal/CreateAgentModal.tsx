@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl";
 import { Button, Modal, FormField, TextInput, SelectInput, Textarea } from "@devdigest/ui";
 import type { Provider } from "@devdigest/shared";
 import { useCreateAgent } from "../../../../../../lib/hooks/agents";
+import { routes } from "../../../../../../lib/routes";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER, MODAL_WIDTH, PROVIDER_OPTIONS } from "./constants";
 import { s } from "./styles";
 
@@ -29,7 +30,7 @@ export function CreateAgentModal({ onClose }: { onClose: () => void }) {
       system_prompt: systemPrompt,
     });
     onClose();
-    router.push(`/agents/${agent.id}?tab=config`);
+    router.push(`${routes.agent(agent.id)}?tab=config`);
   };
 
   return (
