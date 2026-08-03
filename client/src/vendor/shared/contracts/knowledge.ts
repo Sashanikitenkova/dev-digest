@@ -168,15 +168,44 @@ export const CommunitySkill = z.object({
 export type CommunitySkill = z.infer<typeof CommunitySkill>;
 
 // ---- Conventions ----
+export const ConventionStatus = z.enum(['pending', 'accepted', 'rejected']);
+export type ConventionStatus = z.infer<typeof ConventionStatus>;
+
+/**
+ * A house-rule proposed by the extractor and GROUNDED against the repo clone:
+ * `evidence_path` + `evidence_line` were verified to exist, and
+ * `evidence_snippet` was matched against that line's real content before the
+ * row was persisted. Ungrounded candidates are dropped, never stored.
+ *
+ * `status` replaced an earlier `accepted` boolean — triage is three-state, and
+ * a boolean cannot separate "not triaged yet" from "rejected".
+ */
 export const ConventionCandidate = z.object({
   id: z.string(),
+  category: z.string().nullish(),
   rule: z.string(),
   evidence_path: z.string(),
+  evidence_line: z.number().int().nullish(),
   evidence_snippet: z.string(),
   confidence: z.number().min(0).max(1),
-  accepted: z.boolean(),
+  status: ConventionStatus,
+  created_at: z.string(),
 });
 export type ConventionCandidate = z.infer<typeof ConventionCandidate>;
+
+/**
+ * Result of POST /repos/:id/conventions/extract. `dropped` is deliberately
+ * part of the contract: a run where the model proposed 8 rules and every one
+ * failed evidence validation must not read as a success in the UI.
+ */
+export const ConventionExtractResult = z.object({
+  proposed: z.number().int(),
+  kept: z.number().int(),
+  dropped: z.number().int(),
+  sampled_files: z.number().int(),
+  candidates: z.array(ConventionCandidate),
+});
+export type ConventionExtractResult = z.infer<typeof ConventionExtractResult>;
 
 // ---- Agents ----
 export const Provider = z.enum(['openai', 'anthropic', 'openrouter']);

@@ -16,7 +16,29 @@ _Nothing recorded yet._
 
 ## What Doesn't Work
 
-_Nothing recorded yet._
+### 2026-07-20 — [Mistake] The seeded "API Contract Reviewer" cannot be the baseline in a skills A/B
+
+Measuring "does linking a skill change the review?" against that agent proves
+nothing: its own `system_prompt` is already an exhaustive breaking-change
+detector (renamed response fields, Zod response-schema stripping, status-code
+changes), and it ships with `api-contract-guard` linked, which repeats the same
+material as a table. Disabling the skill links still leaves the prompt, so the
+"without skills" arm catches the break anyway. A meaningful A/B needs a fresh
+agent with a deliberately generic prompt — measured here as approve/score 100/0
+findings without skills vs `request_changes`/3 CRITICAL findings with them, on
+one unchanged diff. Evidence: `server/src/db/seed-prompts.ts:591`,
+`server/src/db/seed.ts:349`.
+
+### 2026-07-20 — [Mistake] `drizzle-kit generate` blocks on an interactive prompt when one migration both adds and drops columns
+
+Changing `conventions.accepted` (boolean) into `status` (enum) in a single
+schema edit makes drizzle-kit ask "created or renamed?" per column, and the
+prompt needs a TTY — piping newlines (`printf '\n\n' | pnpm db:generate`) does
+not answer it and the command just hangs. Split the change into two generates
+instead: first the pure additions (leaving the old column in the schema), then
+a second pass that only drops it. Both are unambiguous, so neither prompts.
+Evidence: `server/src/db/migrations/0012_nebulous_machine_man.sql`,
+`server/src/db/migrations/0013_groovy_marvel_zombies.sql`.
 
 ## Codebase Patterns
 
@@ -44,9 +66,33 @@ pre-existing hole where a mid-swap failure dropped all of an agent's links.
 Evidence: `server/src/modules/agents/repository.ts:234`,
 `server/src/modules/reviews/run-executor.ts:360`.
 
+### 2026-07-20 — [Decision] Conventions extraction keeps its own cheap-model default via `getFeatureModelOverride`
+
+`FEATURE_MODELS` lists `conventions` with a default of `openai/gpt-5.4`, but the
+module calls `getFeatureModelOverride` (returns `undefined` when unset) rather
+than `resolveFeatureModel` (substitutes that registry default), so an unset
+workspace falls back to the module's own `openrouter/deepseek-v4-flash`.
+Deliberate: extraction is a bulk pass whose every output is then re-verified
+line-by-line against the clone, so frontier pricing buys nothing the grounding
+gate doesn't already enforce — and the dev box only holds an OpenRouter key, so
+the registry default would fail outright. `feature-models.ts` anticipates this
+caller by name. Evidence: `server/src/modules/settings/feature-models.ts:34`,
+`server/src/modules/conventions/constants.ts`.
+
 ## Tool & Library Notes
 
-_Nothing recorded yet._
+### 2026-07-20 — [Context] `getConventionSamples` returns file PATHS, not code
+
+Despite the name, it is a one-line wrapper over `getTopFilesByRank` and resolves
+to `Promise<string[]>` — top-ranked paths with tests/configs/migrations filtered
+out. Any consumer that wants actual source must read each path off
+`repos.clonePath` itself (`readFile(join(clonePath, file)).catch(() => null)`),
+and must number the lines before showing them to a model, or the model cannot
+cite a real `evidence.line`. It also returns `[]` — not an error — when
+`repoIntelEnabled` is false or the repo was never indexed, so an empty result
+means "no index", not "no conventions". Evidence:
+`server/src/modules/repo-intel/service.ts:630`,
+`server/src/modules/conventions/service.ts`.
 
 ### 2026-07-19 — [Decision] Skill versions snapshot the body ONLY, unlike agent versions
 
@@ -83,6 +129,33 @@ guard, or an existing PR row skips it entirely. Evidence:
 
 Extended `GET /repos/:id/pulls` to include `findings_critical`, `findings_warning`, `findings_suggestion` from the latest review per PR. Required a subquery joining `reviews → findings` grouped by severity. Both vendor copies (`server/src/vendor/shared/contracts/platform.ts` and `client/src/vendor/shared/contracts/platform.ts`) must be updated in sync — they are committed copies with no automated sync. New fields use `.nullish()` (consistent with `score`, `cost_usd`) so the detail route can omit them without breaking Zod serialization. Evidence: `server/src/modules/pulls/routes.ts:98`.
 
+### 2026-07-20 — Conventions extractor: model proposes, code decides
+
+Added `modules/conventions` (`GET /repos/:id/conventions`, `POST
+/repos/:id/conventions/extract`, `PATCH /conventions/:id`) on the pre-existing
+`conventions` table, migrated from `accepted` (boolean) to a three-state
+`status` plus `category`, `evidence_line`, `created_at`. The extractor samples
+top-ranked files, reads them off the clone, asks a cheap model for unwritten
+house-rules, then re-checks every candidate against the source
+(file sampled? line in range? snippet matches, whitespace-normalized, within a
+±3-line window?) and drops the ones that fail before anything is persisted. Two
+live runs on `Sashanikitenkova/dev-digest` showed the gate is load-bearing and
+not merely strict: one kept 2 of 7, another kept 10 of 10. The route returns
+`{proposed, kept, dropped}` so a run where the model invented everything cannot
+render as a successful empty scan. Evidence:
+`server/src/modules/conventions/helpers.ts`, `test/conventions-grounding.test.ts`.
+
 ## Open Questions
 
-_Nothing recorded yet._
+### 2026-07-20 — Why did the skills-on review run take 13 minutes against 55 seconds without?
+
+Same PR, same agent, same `openrouter/deepseek-v4-flash`; the only difference
+was ~4 skill blocks added to the prompt (2529 prompt tokens → noticeably more).
+Run A finished in ~55s, run B took 13m40s wall clock and still produced a
+correct, fully grounded result. A direct OpenRouter call was 1.0s at the same
+time, so the provider was healthy. `openai.ts` uses a 60s per-attempt timeout
+with `maxRetries` 2, which should cap a stalled call well under that — so
+either the retry accounting is not behaving as read, or this reasoning model
+streams for far longer on bigger structured-output prompts. Worth timing
+properly before anyone trusts review latency numbers. Evidence:
+`server/src/adapters/llm/openai.ts:15`, `reviewer-core/src/review/run.ts:174`.

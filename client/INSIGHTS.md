@@ -28,6 +28,21 @@ before settling. Evidence:
 
 Importing `userEvent` from `@testing-library/user-event` in a test file throws "Failed to resolve import" at build time. The client package only has `@testing-library/react` (which includes `fireEvent`). Use `fireEvent.click(el)` for interaction tests; `userEvent` would need a separate `pnpm add`. Evidence: `client/src/app/repos/[repoId]/pulls/[number]/_components/SeverityFilterBar/SeverityFilterBar.test.tsx:3`.
 
+### 2026-07-20 — [Mistake] An "Enabled" toggle on a create-skill form is inert unless `source` is `manual`
+
+The conventions → skill modal shipped with an Enabled toggle defaulting to on,
+and the saved skill came back `enabled: false` every time. `SkillsService.create`
+applies `enabled: trusted ? input.enabled ?? true : false` where
+`trusted = source === 'manual'`, so any `extracted` / `imported_url` /
+`community` skill is forced disabled no matter what the client sends — the same
+rule that makes an imported skill land switched off. The fix was to drop the
+toggle and state plainly that the skill starts disabled pending review; the
+tempting "fix" of sending `source: 'manual'` is wrong, because it would also
+strip the `<untrusted>` wrapper from LLM-derived text at review time. Check this
+rule before putting an enable control on any create-from-generated-content form.
+Evidence: `server/src/modules/skills/service.ts:88`,
+`client/src/app/conventions/_components/CreateSkillModal/CreateSkillModal.tsx`.
+
 ### 2026-07-19 — [Mistake] Creating a skill with an empty `body` 400s — seed a starter scaffold
 
 The "Create from scratch" path first posted `body: ""`, which fails server-side
@@ -56,6 +71,16 @@ Added after an audit found the same `/repos/${repoId}/pulls`-style template lite
 ### 2026-07-18 — [Pattern] Framework-agnostic data-layer logic lives in `lib/services/`
 
 `lib/services/runEventsSource.ts` (raw `EventSource` wiring, extracted from `useRunEvents`) and `lib/services/pollingPolicy.ts` (the `refetchInterval` predicates for `usePrActiveRuns`/`usePrRuns`) hold logic that needs to be testable independent of React. Hooks in `lib/hooks/*` should stay thin React-state glue over a `lib/services/*` function once hook-internal logic gets complex enough to want isolated unit tests. Evidence: `client/src/lib/hooks/reviews.ts`.
+
+### 2026-07-20 — [Decision] The Conventions nav entry is a deliberate edit to vendored `nav.ts`
+
+`src/vendor/ui/nav.ts` is a committed copy and normally off-limits, but the nav
+registry is the only place a sidebar item can be declared, so adding Conventions
+(with its `g c` chord) required editing it. Recorded here so a future resync
+against the `@devdigest/ui` source knows this one entry is intentional rather
+than drift. Only Conventions was added — the other items in the design mockups
+(Eval Dashboard, Memory, Multi-Agent Review…) belong to later lessons and were
+deliberately left out. Evidence: `client/src/vendor/ui/nav.ts:33`.
 
 ## Tool & Library Notes
 
@@ -88,6 +113,19 @@ _Nothing recorded yet._
 ### 2026-06-27 — Severity filter bar + FINDINGS column + layout fixes
 
 Added `SeverityFilterBar` component (pills showing aggregated CRITICAL/WARNING/SUGGESTION counts from all review runs on the Agent runs tab). Clicking a pill filters every `FindingsPanel` in every accordion to that severity; clicking again deselects. Also added a FINDINGS column to the PR list (severity chips with AlertOctagon/AlertTriangle/Lightbulb icons). Sidebar narrowed 264 px → 210 px and PR list grid tightened to prevent "UPDATED" column truncation and "PULL REQUEST" header wrap.
+
+### 2026-07-20 — Conventions triage page + create-skill-from-conventions
+
+Added `/conventions` (thin route → `_components/ConventionsView`), with
+`ConventionCard` (confidence bar, `file:line-range` evidence block over the real
+snippet, copy button, Accept/Reject) and `CreateSkillModal` (merges accepted
+rules into one editable markdown body, saves via `POST /skills`, then appends to
+an agent's link set). Two details worth keeping: Accept/Reject are toggles back
+to `pending` so triage is reversible without a separate undo, and accepted rows
+stay in the visible queue rather than disappearing, because they are exactly
+what the "Create skill" button consumes — hiding them would make the "N of M
+accepted" counter refer to rows the user can no longer see. Evidence:
+`client/src/app/conventions/_components/ConventionsView/helpers.ts`.
 
 ## Open Questions
 
