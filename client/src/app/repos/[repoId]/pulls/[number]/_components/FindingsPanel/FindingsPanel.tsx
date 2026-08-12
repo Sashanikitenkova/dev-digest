@@ -9,7 +9,7 @@ import type { FindingRecord } from "@devdigest/shared";
 import { FindingCard } from "../FindingCard";
 import { useFindingAction } from "../../../../../../../lib/hooks/reviews";
 import { KEY_TO_ACTION } from "./constants";
-import { visibleFindings } from "./helpers";
+import { countOutOfScope, visibleFindings } from "./helpers";
 import { s } from "./styles";
 
 export function FindingsPanel({
@@ -28,10 +28,18 @@ export function FindingsPanel({
   const t = useTranslations("prReview");
   const action = useFindingAction();
   const [hideLow, setHideLow] = React.useState(false);
+  // Collapsed by default. Safe because the scope filter's hard escape hatch
+  // means nothing CRITICAL, security or correctness-related can ever be tagged
+  // out of scope — and the count below keeps the hidden ones visible as a number.
+  const [hideOutOfScope, setHideOutOfScope] = React.useState(true);
   const [focusIdx, setFocusIdx] = React.useState(0);
 
   const filtered = severityFilter ? findings.filter((f) => f.severity === severityFilter) : findings;
-  const shown = React.useMemo(() => visibleFindings(filtered, hideLow), [filtered, hideLow]);
+  const outOfScopeCount = React.useMemo(() => countOutOfScope(filtered), [filtered]);
+  const shown = React.useMemo(
+    () => visibleFindings(filtered, hideLow, hideOutOfScope),
+    [filtered, hideLow, hideOutOfScope],
+  );
 
   // j/k navigation + a/d shortcuts on the focused finding (keyboard).
   React.useEffect(() => {
@@ -55,6 +63,12 @@ export function FindingsPanel({
           {t("panel.hideLowConfidence")}
           <Toggle on={hideLow} onChange={setHideLow} size={16} />
         </div>
+        {outOfScopeCount > 0 && (
+          <div style={s.toggleGroup}>
+            {t("panel.hideOutOfScope", { count: outOfScopeCount })}
+            <Toggle on={hideOutOfScope} onChange={setHideOutOfScope} size={16} />
+          </div>
+        )}
       </div>
 
       <div style={s.list}>

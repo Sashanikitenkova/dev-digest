@@ -63,6 +63,11 @@ export function FindingCard({
             <CategoryTag category={f.category as Category} />
             {accepted && <span style={s.acceptedTag}>{t("finding.accepted")}</span>}
             {dismissed && <span style={s.dismissedTag}>{t("finding.dismissed")}</span>}
+            {f.out_of_scope && (
+              <span style={s.outOfScopeTag} title={f.scope_note ?? undefined}>
+                {t("finding.outOfScope")}
+              </span>
+            )}
           </div>
           <div style={s.metaRow}>
             <MonoLink href={fileHref}>

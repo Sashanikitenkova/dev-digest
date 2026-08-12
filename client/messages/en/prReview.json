@@ -2,6 +2,7 @@
   "finding": {
     "accepted": "accepted",
     "dismissed": "dismissed",
+    "outOfScope": "out of scope",
     "suggestedFix": "Suggested fix",
     "accept": "Accept",
     "dismiss": "Dismiss",
@@ -28,6 +29,7 @@
   },
   "panel": {
     "hideLowConfidence": "Hide low confidence",
+    "hideOutOfScope": "Hide {count} out of scope",
     "noMatchTitle": "No findings match",
     "noMatchBody": "Adjust the filters above, or run a review to generate findings."
   },

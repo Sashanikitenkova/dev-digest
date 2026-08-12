@@ -40,6 +40,33 @@ a second pass that only drops it. Both are unambiguous, so neither prompts.
 Evidence: `server/src/db/migrations/0012_nebulous_machine_man.sql`,
 `server/src/db/migrations/0013_groovy_marvel_zombies.sql`.
 
+### 2026-08-11 — [Mistake] An integration test that injects only SOME providers silently hits the real network
+
+`reviews.it.test.ts` overrode `llm: { openai: mock }` and passed for months. The
+moment a review run also called `container.llm('openrouter')` (the intent
+classifier), the un-injected provider fell through to `LocalSecretsProvider`,
+found a real `OPENROUTER_API_KEY` in `~/.devdigest/secrets.json`, and the test
+started making live, billed API calls. It did not fail loudly — it blew
+`waitForPrRuns`' 10s budget, so `reviewsForPull` returned `[]` and the failure
+read as "no review was persisted" (`reviews[0]` undefined), pointing nowhere
+near the cause. Runtime went 2.6s → 38s, which is the real tell. Any test
+exercising a code path that resolves a provider must inject EVERY provider that
+path can reach; `ContainerOverrides.llm` is a partial record, so omitting one is
+silent by design. Evidence: `server/test/reviews.it.test.ts:129`,
+`server/src/platform/container.ts` (`buildLlm`).
+
+### 2026-08-11 — [Mistake] A Fastify route with an `.optional()` Zod body still 422s a body-less POST
+
+`POST /pulls/:id/intent/detect` declared `body: z.object({force: z.boolean().optional()}).optional()`
+and every body-less `app.inject({method:'POST'})` returned 422 `validation_error`
+— `.optional()` on the schema does not make the request body optional to
+Fastify. The two working escapes are the reviews module's tolerant manual parse
+(`RunRequest.parse(req.body ?? {})`, deliberately deviating from the
+Zod-schema-only house rule) or, when the route genuinely takes no arguments,
+declaring no `body` schema at all. The same trap is already noted from the
+client side in `client/src/lib/api.ts`'s content-type comment. Evidence:
+`server/src/modules/intent/routes.ts:35-44`, `server/src/modules/reviews/routes.ts:32`.
+
 ## Codebase Patterns
 
 ### 2026-06-24 — [Decision] "Latest review round" needs a shared `ranAt`, not each row's own `defaultNow()`
@@ -78,6 +105,41 @@ gate doesn't already enforce — and the dev box only holds an OpenRouter key, s
 the registry default would fail outright. `feature-models.ts` anticipates this
 caller by name. Evidence: `server/src/modules/settings/feature-models.ts:34`,
 `server/src/modules/conventions/constants.ts`.
+
+### 2026-08-11 — [Context] `now()` in `db/schema/_shared.ts` is a `created_at` factory, not a generic timestamptz helper
+
+The helper hard-codes the column NAME: `timestamp('created_at', …)`. Using it
+for any other timestamp column (`generated_at`, `indexed_at`, …) silently
+produces a column called `created_at` in the migration. Spell those out inline
+instead — `timestamp('generated_at', { withTimezone: true }).defaultNow().notNull()`
+is exactly `now()`'s body with the right name. Evidence:
+`server/src/db/schema/_shared.ts:9`, `server/src/db/schema/reviews.ts` (`prIntent.generatedAt`).
+
+### 2026-08-11 — [Decision] The intent module uses `resolveFeatureModel`, unlike the conventions module
+
+The 2026-07-20 entry above records conventions calling `getFeatureModelOverride`
+plus a module-local cheap default, because the registry default for that feature
+was `openai/gpt-5.4` and the dev box holds only an OpenRouter key. The intent
+layer took the other route: the `review_intent` registry default was CHANGED to
+`openrouter/deepseek-v4-flash` in both vendored `platform.ts` copies plus the
+hand-maintained `client/src/lib/feature-models.ts` mirror, so `resolveFeatureModel`
+is correct and there is only one default to reason about. The cost is a
+three-file synchronized edit; the benefit is that Settings, the module and the
+registry cannot disagree. Evidence: `server/src/modules/intent/service.ts:184`,
+`server/src/vendor/shared/contracts/platform.ts:55`.
+
+### 2026-08-12 — [Context] `repoIntel.getBlastRadius` only returns `factsByFile` on the persistent index path
+
+`BlastResult.factsByFile` (the per-caller-file endpoint/cron map) is present on
+the T3 persistent-index path and **absent** on the degraded ripgrep path, where
+only the flat `impactedEndpoints` union survives. Endpoint-to-symbol attribution
+is therefore impossible when degraded: `toBlastRadius` leaves every symbol's
+`endpoints_affected` empty and reports the flat union at the top level rather
+than smearing all endpoints across all symbols, which would state a relationship
+the index never found. Any future consumer of this facade has to make the same
+choice explicitly — the type makes the field optional but not the reason.
+Evidence: `server/src/modules/repo-intel/types.ts:79-84`,
+`server/src/modules/blast/helpers.ts:22-45`.
 
 ## Tool & Library Notes
 
@@ -123,7 +185,49 @@ requires select-by-`(workspace_id, name)`-then-insert. This compounds the
 guard, or an existing PR row skips it entirely. Evidence:
 `server/src/db/seed.ts`.
 
+### 2026-08-11 — [Context] `.default([])` on a shared Zod contract field is a BREAKING change to `z.infer`
+
+Adding `sources: z.array(IntentSource).default([])` to the `Intent` contract
+broke `pnpm typecheck` at `pull.repo.ts` with `TS2741: Property 'sources' is
+missing`, while every `.nullish()` sibling added in the same commit broke
+nothing. `.default()` makes a key OPTIONAL on input but REQUIRED on output, so
+every existing constructor of that type must be updated. Reach for `.nullish()`
+unless a guaranteed non-null value is genuinely needed — and note this compounds
+the vendored-copy rule, since the same edit lands in two places. Evidence:
+`server/src/vendor/shared/contracts/brief.ts:53`.
+
+### 2026-08-12 — [Context] The intent classifier answered in Chinese because no prompt rule pinned the output language
+
+A user-reported "the UI is not in English" bug was NOT an i18n fault — every
+static label was correct; the Chinese text was the model's own `intent` /
+`in_scope` / `out_of_scope` strings, rendered verbatim. `review_intent` defaults
+to `deepseek/deepseek-v4-flash`, and the classifier's `SYSTEM_PROMPT` never
+stated an output language, so the model used its own. Fixed in the PROMPT rather
+than by swapping the model, so it survives the next model change. Two follow-on
+facts: `pr_intent` rows are persisted, so existing cards keep the old text until
+"Re-detect" is pressed; and `SYSTEM_PROMPT` is a template literal, so a
+markdown-style backtick in a new rule is a build error, not a formatting choice.
+Evidence: `server/src/modules/intent/prompt.ts:46-49`,
+`server/src/vendor/shared/contracts/platform.ts:51-57`.
+
 ## Session Notes
+
+### 2026-08-11 — Intent Layer: a cheap classifier call before the review
+
+Added `modules/intent` (`GET /pulls/:id/intent`, `POST /pulls/:id/intent/detect`)
+on the previously-dead `pr_intent` table, plus `reviewer-core/src/scope.ts`. A
+Flash-class model classifies the PR from title/body/linked issue/plan doc/file
+list **with hunk headers but no diff bodies**, and `ReviewRunExecutor` calls
+`ensureFresh` once per review round (best-effort; a classifier failure logs and
+the prompt reverts to its pre-intent shape byte-for-byte). Three decisions worth
+keeping: the source ledger is recorded by the SERVER (`used`/`missing` + reason)
+so an unreachable link is reported rather than invented; confidence is computed
+from that ledger with the model's self-reported number able only to LOWER it;
+and the scope filter is pure code with a hard CRITICAL/security/bug escape
+hatch, because the scope list originates in attacker-controlled PR text.
+`safeRepoRelativePath` gates every clone read — `SimpleGitClient.readFile` joins
+onto the clone dir with no containment check of its own. Evidence:
+`server/src/modules/intent/helpers.ts`, `server/test/intent.it.test.ts`.
 
 ### 2026-06-27 — Added per-severity findings counts to PR list endpoint
 

@@ -1,9 +1,13 @@
 import type { Container } from '../../platform/container.js';
 import type { Provider, Review, RunTrace, UnifiedDiff } from '@devdigest/shared';
+import type { IntentForPrompt } from '@devdigest/reviewer-core';
 import { reviewPullRequest, countBlockers, formatSkillBlocks } from '@devdigest/reviewer-core';
 import { RunLogger } from '../../platform/run-logger.js';
 import * as schema from '../../db/schema.js';
 import type { AgentRow } from '../../db/rows.js';
+import { IntentService } from '../intent/service.js';
+import { traceMeta } from '../intent/helpers.js';
+import type { PrIntentRow } from '../intent/repository.js';
 import type { ReviewRepository, FindingRow, PullRow, ReviewRow } from './repository.js';
 import { REVIEW_STRATEGY } from './constants.js';
 import { taskLine } from './helpers.js';
@@ -105,6 +109,20 @@ export class ReviewRunExecutor {
     }
     runLog.info(`Diff ready — ${diff.files.length} changed file(s); starting ${jobs.length} agent run(s)`);
 
+    // ---- Intent (LLM call 1 of 2) — shared pre-work, like the diff ---------
+    // ONE classification serves every agent in this round. Best-effort by
+    // contract: `ensureFresh` never throws, so a classifier outage degrades the
+    // prompt back to its pre-intent shape instead of failing the review. Its
+    // tokens/cost stay on the pr_intent row and are deliberately NOT folded into
+    // any agent_runs stats — one call must not be billed N times.
+    const intentResult = await new IntentService(this.container).ensureFresh(
+      workspaceId,
+      pull,
+      repo,
+      diff,
+      runLog,
+    );
+
     for (const { agent, runId } of jobs) {
       const agentStart = Date.now();
       logger?.info(
@@ -112,7 +130,16 @@ export class ReviewRunExecutor {
         `review: agent "${agent.name}" started (${agent.provider}/${agent.model})`,
       );
       try {
-        const outcome = await this.runOneAgent(workspaceId, pull, repo, diff, agent, runId, runLog);
+        const outcome = await this.runOneAgent(
+          workspaceId,
+          pull,
+          repo,
+          diff,
+          agent,
+          runId,
+          runLog,
+          intentResult,
+        );
         logger?.info(
           {
             runId,
@@ -144,6 +171,8 @@ export class ReviewRunExecutor {
     agent: AgentRow,
     runId: string,
     parentLog: RunLogger,
+    /** Shared intent from the round's single classifier call; undefined = none. */
+    intentResult?: { intent: IntentForPrompt; row: PrIntentRow; durationMs: number } | undefined,
   ): Promise<RunOutcome> {
     const start = Date.now();
     // Narrow the fanned-out pre-work logger to THIS run; the shared diff/intent
@@ -192,6 +221,10 @@ export class ReviewRunExecutor {
       // a skills lookup failure must not fail the review.
       skillBlocks = await this.buildSkillBlocks(agent, runLog);
 
+      // Numbered so the Live Log shows the two calls as one sequence: the cheap
+      // classifier above, the review model here.
+      runLog.tool(`LLM call 2/2 — review (${agent.provider}/${agent.model})`);
+
       // ---- Engine: assemble → single-pass → grounding -----------------------
       // The pure review pipeline lives in @devdigest/reviewer-core (shared with
       // the CI runner). The service owns only I/O: repo-intel context resolution
@@ -216,6 +249,11 @@ export class ReviewRunExecutor {
         // PR author's description/body — untrusted; assemblePrompt wraps +
         // truncates it. Omitted when the PR has no body.
         ...(pull.body ? { prDescription: pull.body } : {}),
+        // Derived intent — feeds BOTH the `## Intent` prompt section and the
+        // deterministic scope filter, so the two cannot disagree. Same
+        // omit-when-absent contract as callers/repoMap: no intent → the prompt
+        // is byte-identical to the pre-intent one and nothing is demoted.
+        ...(intentResult ? { intent: intentResult.intent } : {}),
         task,
         sessionId: `${repo.owner}/${repo.name}#${pull.number}:${agent.name}`,
         onEvent: (e) => runLog.event(e.kind, e.msg, e.data),
@@ -284,12 +322,28 @@ export class ReviewRunExecutor {
           grounding,
         },
         prompt_assembly: outcome.assembly,
-        tool_calls: outcome.chunks.map((c) => ({
-          tool: 'review_file',
-          args: c.label,
-          meta: outcome.mode,
-          ms: Math.round(durationMs / Math.max(outcome.chunks.length, 1)),
-        })),
+        tool_calls: [
+          // The classifier call, prepended so the trace shows TWO distinct LLM
+          // calls. `meta` carries source KINDS, confidence and a token estimate
+          // only — never the fetched content, never a secret.
+          ...(intentResult
+            ? [
+                {
+                  tool: 'classify_intent',
+                  args: `${intentResult.row.provider ?? 'unknown'}/${intentResult.row.model ?? 'unknown'}`,
+                  meta: traceMeta(intentResult.row),
+                  // 0 when this round reused a cached intent — no call was made.
+                  ms: intentResult.durationMs,
+                },
+              ]
+            : []),
+          ...outcome.chunks.map((c) => ({
+            tool: 'review_file',
+            args: c.label,
+            meta: outcome.mode,
+            ms: Math.round(durationMs / Math.max(outcome.chunks.length, 1)),
+          })),
+        ],
         raw_output: outcome.raw,
         memory_pulled: [],
         specs_read: [],

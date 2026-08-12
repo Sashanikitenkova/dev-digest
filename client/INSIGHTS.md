@@ -104,11 +104,58 @@ updating every test provider that mounts it. Evidence:
 `client/src/components/RunTraceDrawer/PromptBlock/PromptBlock.tsx`,
 `client/src/lib/tokens.ts`.
 
+### 2026-08-11 — [Context] The `Toggle` primitive has no accessible name — select it by `role="switch"` and its checked state
+
+`Toggle` renders a bare `<button role="switch" aria-checked>` with no label,
+`aria-label`, or `id` (`src/vendor/ui/primitives/Toggle.tsx:15`); the caption
+next to it is a sibling text node inside the wrapping div, not a `<label>`. So
+`getByText("Hide 1 out of scope")` returns the WRAPPER div, and
+`.parentElement.querySelector("button")` walks up to the toolbar and grabs the
+wrong switch. In a panel with several toggles, the reliable RTL selector is
+`getByRole("switch", { checked: true/false })` when the default states differ,
+or `getAllByRole("switch")[i]` when they don't. Evidence:
+`client/src/app/repos/[repoId]/pulls/[number]/_components/FindingsPanel/FindingsPanel.test.tsx`.
+
 ## Recurring Errors & Fixes
 
-_Nothing recorded yet._
+### 2026-08-12 — [Context] Two hooks in one component share the `lib/api` mock — route by URL, not `mockResolvedValue`
+
+These component tests mock at the network boundary (`vi.mock("lib/api")`), so
+once a component calls a SECOND data hook, a blanket `get.mockResolvedValue(X)`
+feeds X to both queries. `IntentCard` now calls `usePrIntent` and `usePrRisks`;
+the fix is `get.mockImplementation((url) => url.endsWith("/risks") ? … : …)`.
+The failure is quiet rather than loud — the second hook gets a well-formed
+object of the wrong shape and renders nothing, so the test passes for the wrong
+reason until an assertion happens to catch it. Evidence:
+`client/src/app/repos/[repoId]/pulls/[number]/_components/IntentCard/IntentCard.test.tsx`.
+
+### 2026-08-12 — [Context] Cost/token totals live on `RunSummary`, not `ReviewRecord` — the brief footnote needs a `run_id` join
+
+`ReviewRecord` (`vendor/shared/contracts/review-api.ts:23-38`) carries verdict,
+summary, score and findings but NO cost or token counts; those are on
+`RunSummary` (`contracts/trace.ts:96-117`), which also denormalizes `score` and
+`blockers`. Any surface wanting "verdict + what it cost" must fetch both
+(`usePrReviews` + `usePrRuns`) and join on `review.run_id`, and must tolerate the
+run row being absent — deleting a run from history leaves the review intact.
+Evidence: `client/src/app/repos/[repoId]/pulls/[number]/_components/PrBriefHeader/helpers.ts:26-33`.
 
 ## Session Notes
+
+### 2026-08-11 — Intent card on the PR Overview tab + out-of-scope collapse
+
+Added `IntentCard` (rendered FIRST on the Overview tab, above the description,
+so the reader can check the system understood the task before weighing what it
+says about the code), `lib/hooks/intent.ts`, an `intent` `PromptBlock` in the
+Run Trace drawer, and an `out of scope` chip plus a collapse toggle in
+`FindingsPanel`. Two details worth keeping: the source chips render `missing`
+entries WITH their reason inline rather than hiding them — the card's job is to
+show what the system did not know, so an unfetched Notion link and a
+plan-not-in-the-clone both stay visible; and the out-of-scope toggle defaults to
+collapsed, which is only safe because the server-side filter can never tag a
+CRITICAL/security/correctness finding, with the count in the label
+("Hide 1 out of scope") keeping the hidden ones present as a number. Evidence:
+`client/src/app/repos/[repoId]/pulls/[number]/_components/IntentCard/IntentCard.tsx`,
+`.../FindingsPanel/helpers.ts`.
 
 ### 2026-06-27 — Severity filter bar + FINDINGS column + layout fixes
 

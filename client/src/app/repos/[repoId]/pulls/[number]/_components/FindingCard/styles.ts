@@ -44,6 +44,16 @@ export const s = {
     fontWeight: 600,
     color: "var(--text-muted)",
   } satisfies CSSProperties,
+  /** Set by the scope filter. Visible on purpose: a demoted finding that looks
+      like an ordinary suggestion hides why its severity dropped. */
+  outOfScopeTag: {
+    fontSize: 11,
+    padding: "1px 7px",
+    borderRadius: 999,
+    border: "1px dashed var(--border)",
+    color: "var(--text-muted)",
+    whiteSpace: "nowrap",
+  } satisfies CSSProperties,
   metaRow: {
     display: "flex",
     alignItems: "center",
