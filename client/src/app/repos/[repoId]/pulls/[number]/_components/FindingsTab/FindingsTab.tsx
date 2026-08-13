@@ -16,6 +16,8 @@ interface FindingsTabProps {
   liveRunIds: string[];
   reviewRunning: boolean;
   lethalTrifecta: FindingRecord[];
+  /** ?finding=<id> — the run holding it opens, and its card expands + scrolls. */
+  targetFindingId?: string | null;
   runs: ReviewRecord[];
   prRuns: RunSummary[] | undefined;
   prCommits: PrCommit[];
@@ -33,6 +35,7 @@ export function FindingsTab({
   liveRunIds,
   reviewRunning,
   lethalTrifecta,
+  targetFindingId,
   runs,
   prRuns,
   prCommits,
@@ -177,6 +180,7 @@ export function FindingsTab({
             headSha={headSha}
             targetRunId={target?.runId ?? null}
             targetNonce={target?.n ?? 0}
+            targetFindingId={targetFindingId}
             severityFilter={sevFilter}
           />
         ))

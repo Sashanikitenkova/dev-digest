@@ -247,6 +247,64 @@ describe("SmartDiffViewer — jump to line", () => {
   });
 });
 
+describe("SmartDiffViewer — severity tag opens the finding", () => {
+  const flagged = (findings: FindingRecord[], lines: number[]) => ({
+    smartDiff: {
+      ...SMART_DIFF,
+      groups: [{ role: "core" as const, files: [sdFile("src/middleware/ratelimit.ts", 84, 0, lines)] }],
+    },
+    findingsByPath: findingsByPath(findings),
+  });
+
+  it("stays a non-interactive tag when no handler is supplied", () => {
+    renderViewer(flagged([finding()], [26]));
+    expect(screen.getByText("blocker")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Open finding: Unvalidated callback URL" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("reports the clicked finding's id", () => {
+    const onSelectFinding = vi.fn();
+    renderViewer({ ...flagged([finding()], [26]), onSelectFinding });
+
+    fireEvent.click(screen.getByRole("button", { name: "Open finding: Unvalidated callback URL" }));
+
+    expect(onSelectFinding).toHaveBeenCalledWith("f1");
+  });
+
+  it("keeps one tag per severity, each carrying its own finding", () => {
+    const onSelectFinding = vi.fn();
+    renderViewer({
+      ...flagged(
+        [
+          finding(),
+          finding({ id: "f2", title: "Second blocker" }),
+          finding({ id: "f3", severity: "WARNING", title: "A warning" }),
+        ],
+        [26],
+      ),
+      onSelectFinding,
+    });
+
+    // Two CRITICALs collapse into one "blocker" tag — it opens the first of them.
+    fireEvent.click(screen.getByRole("button", { name: "Open finding: Unvalidated callback URL" }));
+    expect(onSelectFinding).toHaveBeenCalledWith("f1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Open finding: A warning" }));
+    expect(onSelectFinding).toHaveBeenCalledWith("f3");
+  });
+
+  it("does not collapse the file card when a tag is pressed", () => {
+    renderViewer({ ...flagged([finding()], [26]), onSelectFinding: vi.fn() });
+
+    fireEvent.click(screen.getByRole("button", { name: "Open finding: Unvalidated callback URL" }));
+
+    expect(screen.getByText("src/middleware/ratelimit.ts")).toBeInTheDocument();
+    expect(screen.getByText("blocker")).toBeInTheDocument();
+  });
+});
+
 describe("SmartDiffViewer — split suggestion", () => {
   it("stays quiet for a normal-sized PR", () => {
     renderViewer();

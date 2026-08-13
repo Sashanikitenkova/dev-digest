@@ -25,6 +25,9 @@ export interface SmartDiffViewerProps {
   /** Findings of the latest review round, bucketed by file path. */
   findingsByPath?: Map<string, FindingRecord[]>;
   commenting?: DiffCommentApi;
+  /** Makes the per-line severity tags clickable — the PR page turns this into a
+   *  soft navigation to the Findings tab, targeting that finding. */
+  onSelectFinding?: (id: string) => void;
 }
 
 /** A scroll request: the nonce is what lets the same line be re-targeted. */
@@ -39,6 +42,7 @@ export function SmartDiffViewer({
   files,
   findingsByPath,
   commenting,
+  onSelectFinding,
 }: SmartDiffViewerProps) {
   const t = useTranslations("prReview");
   const [jump, setJump] = React.useState<JumpTarget | null>(null);
@@ -78,6 +82,7 @@ export function SmartDiffViewer({
           commenting={commenting}
           jump={jump}
           onJump={handleJump}
+          onSelectFinding={onSelectFinding}
         />
       ))}
     </div>
@@ -91,6 +96,7 @@ function RoleGroup({
   commenting,
   jump,
   onJump,
+  onSelectFinding,
 }: {
   group: SmartDiffGroup;
   patchByPath: Map<string, PrFile>;
@@ -98,6 +104,7 @@ function RoleGroup({
   commenting?: DiffCommentApi;
   jump: JumpTarget | null;
   onJump: (path: string, line: number) => void;
+  onSelectFinding?: (id: string) => void;
 }) {
   const t = useTranslations("prReview");
   const meta = ROLE_META[group.role as SmartDiffRole];
@@ -148,6 +155,7 @@ function RoleGroup({
                   defaultOpen={group.role !== "boilerplate" || findings.length > 0}
                   scrollTo={jump && jump.path === f.path ? { line: jump.line, nonce: jump.nonce } : null}
                   onJumpToLine={(line) => onJump(f.path, line)}
+                  onSelectFinding={onSelectFinding}
                 />
               );
             })

@@ -1,17 +1,26 @@
 import type { FindingRecord } from "@devdigest/shared";
 import { LOW_CONFIDENCE_THRESHOLD, SEVERITY_ORDER } from "./constants";
 
-/** Optionally drop low-confidence and out-of-scope findings, then sort by severity. */
+/**
+ * Optionally drop low-confidence and out-of-scope findings, then sort by severity.
+ *
+ * `targetId` is the ?finding= deep-link target and is exempt from both filters:
+ * a link followed from a diff badge must never dead-end on an empty panel, and
+ * silently flipping the user's toggles to reveal it would be worse.
+ */
 export function visibleFindings(
   findings: FindingRecord[],
   hideLow: boolean,
   hideOutOfScope = false,
+  targetId?: string | null,
 ): FindingRecord[] {
+  const exempt = (f: FindingRecord) => !!targetId && f.id === targetId;
   let shown = findings;
-  if (hideLow) shown = shown.filter((f) => f.confidence >= LOW_CONFIDENCE_THRESHOLD);
+  if (hideLow)
+    shown = shown.filter((f) => f.confidence >= LOW_CONFIDENCE_THRESHOLD || exempt(f));
   // Safe to collapse by default only because the scope filter can never tag a
   // CRITICAL, security or correctness finding — see reviewer-core/src/scope.ts.
-  if (hideOutOfScope) shown = shown.filter((f) => !f.out_of_scope);
+  if (hideOutOfScope) shown = shown.filter((f) => !f.out_of_scope || exempt(f));
   return [...shown].sort(
     (a, b) => (SEVERITY_ORDER[a.severity] ?? 9) - (SEVERITY_ORDER[b.severity] ?? 9),
   );

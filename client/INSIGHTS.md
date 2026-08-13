@@ -128,6 +128,30 @@ prop (default `2`, so existing callers are unaffected); pass
 
 ## Recurring Errors & Fixes
 
+### 2026-08-13 — [Pitfall] Two `setParam` calls in one handler silently drop the first
+
+The PR detail page's `setParam(key, val)` builds its next URL from
+`new URLSearchParams(search.toString())` — a snapshot of the CURRENT render's
+search params. Calling it twice in one event handler
+(`setParam("tab","findings"); setParam("finding", id)`) makes both calls start
+from the same snapshot, so the second `router.replace` wins and the first key's
+change is lost. `search` only updates on the re-render AFTER the navigation.
+Anything setting 2+ params at once needs a multi-key builder
+(`urlWith({ tab, finding })` → one `router.replace`/`push`). The symptom is
+maddening: the URL looks "one click behind" rather than plainly broken.
+Evidence: `client/src/app/repos/[repoId]/pulls/[number]/page.tsx`.
+
+### 2026-08-13 — [Context] `borderColor` is a shorthand too — it clashes with `borderLeftColor`
+
+`FindingCard/styles.ts` already carried a comment warning not to mix the
+`border` shorthand with `borderLeft`, but still set `borderColor` alongside
+`borderLeftColor`. React only warns when the value CHANGES on a rerender, so it
+stayed silent until a `focused` flip started happening mid-life ("Updating a
+style property during rerender (borderColor) when a conflicting property is set
+(borderLeftColor)"). Per-side longhands
+(`borderTopColor`/`borderRightColor`/`borderBottomColor`) fix it. Evidence:
+`client/src/app/repos/[repoId]/pulls/[number]/_components/FindingCard/styles.ts`.
+
 ### 2026-08-13 — [Context] Adding a 2nd parameter to a DTO mapper silently breaks `rows.map(mapper)`
 
 `AgentsService.list` was `rows.map(toAgentDto)`. Giving `toAgentDto` an optional
@@ -162,6 +186,35 @@ run row being absent — deleting a run from history leaves the review intact.
 Evidence: `client/src/app/repos/[repoId]/pulls/[number]/_components/PrBriefHeader/helpers.ts:26-33`.
 
 ## Session Notes
+
+### 2026-08-13 — Diff severity tags deep-link to their FindingCard
+
+Made the per-line Smart Diff severity tag a button that pushes
+`?tab=findings&finding=<id>`; the run accordion holding that finding force-opens,
+`FindingsPanel` exempts it from every filter, and `FindingCard` expands and
+scrolls itself. Details worth keeping:
+
+- **Testing this needs the right PR.** The seeded demo PR (`acme/payments-api`
+  #482) renders NO severity tags, so it cannot exercise the feature and no e2e
+  flow can cover it against the current seed. `SmartDiffService.getForPull`
+  serves `finding_lines` from the latest review ROUND and deliberately refuses to
+  fall back to an older review when that round produced no findings — "a round
+  that ran and found nothing is a clean diff". #482's newest round is empty while
+  its two findings sit on an older review row, so its `finding_lines` are `{}`.
+  Verify on a PR whose most recent round actually produced findings.
+- **One tag can stand for several findings.** `SeverityTag` renders one chip per
+  severity, and real data has many findings on one line (a local PR had 6
+  CRITICALs on `routes.ts:38` from 6 different runs). The chip opens the FIRST of
+  its severity, which routinely lives in a run that is NOT the newest — which is
+  why the accordion has to open by "does this run hold the target id", not by
+  assuming the newest run.
+- `FindingCard`'s `expanded` is uncontrolled and seeded once from
+  `defaultExpanded`, so a parent cannot open it by re-rendering; the card has to
+  push itself open from an effect on `isTarget`.
+
+Evidence: `client/src/components/diff-viewer/CodeLine/CodeLine.tsx`,
+`.../_components/ReviewRunAccordion/ReviewRunAccordion.tsx`,
+`server/src/modules/smart-diff/service.ts`.
 
 ### 2026-08-11 — Intent card on the PR Overview tab + out-of-scope collapse
 

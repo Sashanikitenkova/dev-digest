@@ -47,6 +47,8 @@ export interface FileCardProps {
   scrollTo?: { line: number; nonce: number } | null;
   /** Asks the owner to scroll this file to `line` (badge click). */
   onJumpToLine?: (line: number) => void;
+  /** Makes the per-line severity tags clickable — opens that finding elsewhere. */
+  onSelectFinding?: (id: string) => void;
 }
 
 export function FileCard({
@@ -56,6 +58,7 @@ export function FileCard({
   defaultOpen,
   scrollTo,
   onJumpToLine,
+  onSelectFinding,
 }: FileCardProps) {
   const t = useTranslations("shell");
   const [open, setOpen] = React.useState(
@@ -161,6 +164,7 @@ export function FileCard({
                 threads={threadsForLine(ln, matched)}
                 commenting={commenting}
                 findings={ln.newNo != null ? byLine.get(ln.newNo) : undefined}
+                onSelectFinding={onSelectFinding}
               />
             ))
           )}

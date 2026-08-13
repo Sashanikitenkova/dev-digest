@@ -18,12 +18,15 @@ export function FindingsPanel({
   repoFullName,
   headSha,
   severityFilter,
+  targetFindingId,
 }: {
   findings: FindingRecord[];
   prId: string;
   repoFullName?: string | null;
   headSha?: string | null;
   severityFilter?: string | null;
+  /** ?finding=<id> — shown even when a filter would hide it, then auto-expanded. */
+  targetFindingId?: string | null;
 }) {
   const t = useTranslations("prReview");
   const action = useFindingAction();
@@ -34,12 +37,20 @@ export function FindingsPanel({
   const [hideOutOfScope, setHideOutOfScope] = React.useState(true);
   const [focusIdx, setFocusIdx] = React.useState(0);
 
-  const filtered = severityFilter ? findings.filter((f) => f.severity === severityFilter) : findings;
+  const filtered = severityFilter
+    ? findings.filter((f) => f.severity === severityFilter || f.id === targetFindingId)
+    : findings;
   const outOfScopeCount = React.useMemo(() => countOutOfScope(filtered), [filtered]);
   const shown = React.useMemo(
-    () => visibleFindings(filtered, hideLow, hideOutOfScope),
-    [filtered, hideLow, hideOutOfScope],
+    () => visibleFindings(filtered, hideLow, hideOutOfScope, targetFindingId),
+    [filtered, hideLow, hideOutOfScope, targetFindingId],
   );
+
+  // Land the j/k highlight ring on the deep-linked card instead of the first one.
+  const targetIdx = targetFindingId ? shown.findIndex((f) => f.id === targetFindingId) : -1;
+  React.useEffect(() => {
+    if (targetIdx >= 0) setFocusIdx(targetIdx);
+  }, [targetIdx]);
 
   // j/k navigation + a/d shortcuts on the focused finding (keyboard).
   React.useEffect(() => {
@@ -81,6 +92,7 @@ export function FindingsPanel({
               f={f}
               focused={i === focusIdx}
               defaultExpanded={i === 0}
+              isTarget={f.id === targetFindingId}
               pending={action.isPending}
               repoFullName={repoFullName}
               headSha={headSha}

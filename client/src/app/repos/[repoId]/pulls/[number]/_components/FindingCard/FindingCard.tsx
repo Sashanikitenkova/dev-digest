@@ -31,10 +31,13 @@ export function FindingCard({
   pending,
   repoFullName,
   headSha,
+  isTarget,
 }: {
   f: FindingRecord;
   focused?: boolean;
   defaultExpanded?: boolean;
+  /** This is the ?finding= deep-link target: expand and scroll into view. */
+  isTarget?: boolean;
   onAction?: (action: FindingActionKind, reply?: string) => void;
   pending?: boolean;
   repoFullName?: string | null;
@@ -42,6 +45,17 @@ export function FindingCard({
 }) {
   const t = useTranslations("prReview");
   const [expanded, setExpanded] = React.useState(defaultExpanded ?? false);
+  const rootRef = React.useRef<HTMLDivElement | null>(null);
+
+  // `expanded` is uncontrolled, so a parent can't open this card by re-rendering
+  // it — the deep link has to push it open from here, on mount or when the URL
+  // target changes to this card.
+  React.useEffect(() => {
+    if (!isTarget) return;
+    setExpanded(true);
+    rootRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [isTarget]);
+
   const sevColor = SEV_COLOR[f.severity] ?? SEV_COLOR_FALLBACK;
   const fileHref =
     repoFullName && headSha
@@ -52,7 +66,7 @@ export function FindingCard({
   const muted = accepted || dismissed;
 
   return (
-    <div data-finding-id={f.id} style={s.card(!!focused, sevColor, muted)}>
+    <div ref={rootRef} data-finding-id={f.id} style={s.card(!!focused, sevColor, muted)}>
       <div onClick={() => setExpanded((e) => !e)} style={s.header}>
         <div style={s.badgeWrap}>
           <SeverityBadge severity={f.severity as Severity} compact />

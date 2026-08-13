@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach, beforeAll, vi } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import type { FindingRecord } from "@devdigest/shared";
@@ -11,6 +11,11 @@ vi.mock("../../../../../../../lib/hooks/reviews", () => ({
 import { FindingsPanel } from "./FindingsPanel";
 
 afterEach(cleanup);
+
+// A targeted FindingCard scrolls itself into view; jsdom has no scrollIntoView.
+beforeAll(() => {
+  Element.prototype.scrollIntoView = vi.fn();
+});
 
 const FINDINGS: FindingRecord[] = [
   {
@@ -82,6 +87,44 @@ describe("FindingsPanel (smoke)", () => {
     it("offers no toggle when nothing was demoted", () => {
       renderWithIntl(<FindingsPanel findings={FINDINGS} prId="pr1" />);
       expect(screen.queryByText(/out of scope/)).not.toBeInTheDocument();
+    });
+
+    it("still shows a demoted finding when it is the deep-link target", () => {
+      renderWithIntl(
+        <FindingsPanel findings={[...FINDINGS, demoted]} prId="pr1" targetFindingId="f2" />,
+      );
+      // The toggle stays ON — the target is exempted, not revealed by resetting it.
+      expect(screen.getByRole("switch", { checked: true })).toBeInTheDocument();
+      expect(screen.getByText("Inconsistent indentation")).toBeInTheDocument();
+    });
+  });
+
+  describe("deep-link target", () => {
+    it("survives a severity filter it does not match", () => {
+      renderWithIntl(
+        <FindingsPanel
+          findings={FINDINGS}
+          prId="pr1"
+          severityFilter="WARNING"
+          targetFindingId="f1"
+        />,
+      );
+      expect(screen.getByText("Hardcoded secret")).toBeInTheDocument();
+    });
+
+    it("is filtered out normally when it is not the target", () => {
+      renderWithIntl(<FindingsPanel findings={FINDINGS} prId="pr1" severityFilter="WARNING" />);
+      expect(screen.queryByText("Hardcoded secret")).not.toBeInTheDocument();
+      expect(screen.getByText("No findings match")).toBeInTheDocument();
+    });
+
+    it("survives the hide-low-confidence toggle", () => {
+      const lowConf: FindingRecord = { ...FINDINGS[0]!, id: "f3", confidence: 0.2 };
+      renderWithIntl(
+        <FindingsPanel findings={[lowConf]} prId="pr1" targetFindingId="f3" />,
+      );
+      fireEvent.click(screen.getByRole("switch", { checked: false }));
+      expect(screen.getByText("Hardcoded secret")).toBeInTheDocument();
     });
   });
 });

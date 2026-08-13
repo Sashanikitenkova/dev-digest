@@ -23,8 +23,10 @@ export const CodeLine = React.forwardRef<
     commenting?: DiffCommentApi;
     /** Review findings citing this line (Smart Diff only). */
     findings?: FindingRecord[];
+    /** Makes the severity tags clickable — jumps to that finding in the Findings tab. */
+    onSelectFinding?: (id: string) => void;
   }
->(function CodeLine({ ln, path, threads, commenting, findings }, ref) {
+>(function CodeLine({ ln, path, threads, commenting, findings, onSelectFinding }, ref) {
   const [hover, setHover] = React.useState(false);
   const [composing, setComposing] = React.useState(false);
 
@@ -70,7 +72,7 @@ export const CodeLine = React.forwardRef<
         <span className="mono" style={s.lineText}>
           {ln.text || " "}
         </span>
-        {flagged && <SeverityTag findings={findings!} />}
+        {flagged && <SeverityTag findings={findings!} onSelect={onSelectFinding} />}
       </div>
 
       {commenting &&
@@ -92,20 +94,67 @@ export const CodeLine = React.forwardRef<
   );
 });
 
-/** One tag per severity present on the line, worst first. */
-function SeverityTag({ findings }: { findings: FindingRecord[] }) {
-  const seen = new Set<Severity>();
-  for (const f of findings) seen.add(f.severity as Severity);
-  const ordered = [...seen].sort((a, b) => SEVERITY_RANK[a] - SEVERITY_RANK[b]);
+/** One tag per severity present on the line, worst first. When `onSelect` is
+    given each tag is a button that opens its finding in the Findings tab — so
+    the FIRST finding of each severity is kept, not just the severity itself. */
+function SeverityTag({
+  findings,
+  onSelect,
+}: {
+  findings: FindingRecord[];
+  onSelect?: (id: string) => void;
+}) {
+  const firstOfSeverity = new Map<Severity, FindingRecord>();
+  for (const f of findings) {
+    const sev = f.severity as Severity;
+    if (!firstOfSeverity.has(sev)) firstOfSeverity.set(sev, f);
+  }
+  const ordered = [...firstOfSeverity.entries()].sort(
+    ([a], [b]) => SEVERITY_RANK[a] - SEVERITY_RANK[b]
+  );
   return (
     <>
-      {ordered.map((sev) => {
+      {ordered.map(([sev, f]) => {
         const I = Icon[SEV[sev].icon];
-        return (
-          <span key={sev} style={fs.lineTag(sev)} title={SEV[sev].label}>
+        const content = (
+          <>
             <I size={11.5} />
             {SEVERITY_LABEL[sev]}
-          </span>
+          </>
+        );
+        if (!onSelect) {
+          return (
+            <span key={sev} style={fs.lineTag(sev)} title={SEV[sev].label}>
+              {content}
+            </span>
+          );
+        }
+        return (
+          <button
+            key={sev}
+            type="button"
+            // The row has its own hover/comment affordances — a tag press must
+            // only navigate.
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect(f.id);
+            }}
+            title={SEV[sev].label}
+            aria-label={`Open finding: ${f.title}`}
+            // Reset FIRST, then the chip styles — `lineTag` owns paddingRight
+            // and the font size, and a `font`/`padding` shorthand after it
+            // would silently wipe them.
+            style={{
+              background: "none",
+              border: 0,
+              padding: 0,
+              fontFamily: "inherit",
+              cursor: "pointer",
+              ...fs.lineTag(sev),
+            }}
+          >
+            {content}
+          </button>
         );
       })}
     </>

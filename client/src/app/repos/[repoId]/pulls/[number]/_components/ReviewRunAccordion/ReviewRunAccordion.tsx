@@ -31,6 +31,7 @@ export function ReviewRunAccordion({
   headSha,
   targetRunId = null,
   targetNonce = 0,
+  targetFindingId = null,
   severityFilter,
 }: {
   review: ReviewRecord;
@@ -42,6 +43,9 @@ export function ReviewRunAccordion({
    *  (driven from the Timeline: clicking an agent name navigates here). */
   targetRunId?: string | null;
   targetNonce?: number;
+  /** ?finding=<id> — if this run holds it, force the accordion open so the card
+   *  actually mounts (a collapsed run renders no FindingsPanel at all). */
+  targetFindingId?: string | null;
   severityFilter?: string | null;
 }) {
   const [open, setOpen] = React.useState(defaultOpen);
@@ -55,6 +59,12 @@ export function ReviewRunAccordion({
   }, [targetRunId, targetNonce, review.run_id]);
   const del = useDeleteReview(prId);
   const findings = review.findings;
+  // Only open — the FindingCard scrolls itself, and two smooth scrolls racing
+  // each other lands the viewport somewhere between the two.
+  const holdsTarget = !!targetFindingId && findings.some((f) => f.id === targetFindingId);
+  React.useEffect(() => {
+    if (holdsTarget) setOpen(true);
+  }, [holdsTarget]);
   const blockers = findings.filter((f) => f.severity === "CRITICAL" && !f.dismissed_at).length;
   const verdictColor = review.verdict ? VERDICT_COLOR[review.verdict] ?? "var(--text-muted)" : "var(--text-muted)";
 
@@ -155,6 +165,7 @@ export function ReviewRunAccordion({
             repoFullName={repoFullName}
             headSha={headSha}
             severityFilter={severityFilter}
+            targetFindingId={targetFindingId}
           />
         </div>
       )}
