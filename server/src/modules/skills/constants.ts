@@ -15,3 +15,11 @@ export const DEFAULT_SKILL_SOURCE = 'manual' as const;
  * app-wide default is 1 MB) so no other endpoint gets a wider door.
  */
 export const IMPORT_BODY_LIMIT_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Rolling window for every rate on the Stats tab. Fixed rather than
+ * caller-supplied: the card footer and the tab must quote the same number, and
+ * a "74% accept" that silently means a different span on two screens is worse
+ * than no number at all. The UI labels the window explicitly.
+ */
+export const STATS_WINDOW_DAYS = 30;

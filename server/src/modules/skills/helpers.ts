@@ -1,7 +1,7 @@
 import type { Skill, SkillType } from '@devdigest/shared';
 import { SkillType as SkillTypeSchema } from '@devdigest/shared';
 import type { SkillRow, SkillVersionRow } from '../../db/rows.js';
-import { DEFAULT_SKILL_TYPE } from './constants.js';
+import { DEFAULT_SKILL_TYPE, STATS_WINDOW_DAYS } from './constants.js';
 
 /**
  * Pure helpers for the skills module — DB row ⇄ DTO mapping, the
@@ -38,6 +38,50 @@ export function toSkillVersionDto(row: SkillVersionRow): SkillVersionDto {
     body: row.body,
     created_at: row.createdAt.toISOString(),
   };
+}
+
+// ---- stats ------------------------------------------------------------------
+
+/** Start of the rolling stats window. Pure given a clock; injectable for tests. */
+export function statsWindowStart(now: Date = new Date()): Date {
+  return new Date(now.getTime() - STATS_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+}
+
+/**
+ * A rate in 0..1, or **null when the denominator is zero**.
+ *
+ * The null matters: "no run has used this skill yet" and "this skill was
+ * offered and never pulled" are different facts, and rendering both as 0%
+ * would assert the second when only the first is known. The UI shows `—` for
+ * null and a real percentage otherwise.
+ */
+export function ratio(numerator: number, denominator: number): number | null {
+  if (denominator <= 0) return null;
+  return numerator / denominator;
+}
+
+/** Per-category finding rows collapsed into the totals the Stats tab shows. */
+export function summariseFindings(
+  rows: { category: string; total: number; accepted: number; dismissed: number }[],
+): {
+  total: number;
+  accepted: number;
+  dismissed: number;
+  byCategory: { category: string; count: number }[];
+} {
+  let total = 0;
+  let accepted = 0;
+  let dismissed = 0;
+  for (const r of rows) {
+    total += r.total;
+    accepted += r.accepted;
+    dismissed += r.dismissed;
+  }
+  // Biggest slice first so the donut's legend reads in rank order.
+  const byCategory = rows
+    .map((r) => ({ category: r.category, count: r.total }))
+    .sort((a, b) => b.count - a.count || a.category.localeCompare(b.category));
+  return { total, accepted, dismissed, byCategory };
 }
 
 /**

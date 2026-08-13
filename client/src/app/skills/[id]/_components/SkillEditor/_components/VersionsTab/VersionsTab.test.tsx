@@ -6,10 +6,10 @@ import messages from "../../../../../../../../messages/en/skills.json";
 import { ToastProvider } from "../../../../../../../lib/toast";
 import { diffLines } from "./helpers";
 
-const updateMutate = vi.fn();
+const restoreMutate = vi.fn();
 
 vi.mock("../../../../../../../lib/hooks/skills", () => ({
-  useUpdateSkill: () => ({ mutate: updateMutate, isPending: false }),
+  useRestoreSkillVersion: () => ({ mutate: restoreMutate, isPending: false }),
   useSkillVersions: () => ({
     data: [
       { skill_id: "sk1", version: 2, body: "current body", created_at: "2026-07-18T10:00:00.000Z" },
@@ -44,7 +44,7 @@ function renderTab() {
   );
 }
 
-beforeEach(() => updateMutate.mockReset());
+beforeEach(() => restoreMutate.mockReset());
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -59,19 +59,21 @@ describe("VersionsTab", () => {
     expect(screen.getAllByRole("button", { name: "Restore" })).toHaveLength(1);
   });
 
-  it("restores by PUTting the old body — a NEW version, never a rewrite", () => {
+  it("restores by version through the restore endpoint, not by resending a body", () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     renderTab();
     fireEvent.click(screen.getByRole("button", { name: "Restore" }));
-    expect(updateMutate).toHaveBeenCalledTimes(1);
-    expect(updateMutate.mock.calls[0]![0]).toEqual({ id: "sk1", patch: { body: "old body" } });
+    expect(restoreMutate).toHaveBeenCalledTimes(1);
+    // The version identifies the snapshot; the server reads the body itself,
+    // so a stale copy in the client can never be written back as "restored".
+    expect(restoreMutate.mock.calls[0]![0]).toEqual({ id: "sk1", version: 1 });
   });
 
   it("does nothing when the restore confirmation is declined", () => {
     vi.spyOn(window, "confirm").mockReturnValue(false);
     renderTab();
     fireEvent.click(screen.getByRole("button", { name: "Restore" }));
-    expect(updateMutate).not.toHaveBeenCalled();
+    expect(restoreMutate).not.toHaveBeenCalled();
   });
 
   it("shows a line diff of the snapshot against the current body", () => {

@@ -1,5 +1,5 @@
-/* SkillEditor — Config + Preview + Versions over one skill. Tab state lives in
-   ?tab= on the route so a link can deep-link straight to Versions. */
+/* SkillEditor — Config + Preview + Stats + Versions over one skill. Tab state
+   lives in ?tab= on the route so a link can deep-link straight to a tab. */
 "use client";
 
 import React from "react";
@@ -8,6 +8,7 @@ import { Tabs } from "@devdigest/ui";
 import type { Skill } from "@devdigest/shared";
 import { ConfigTab } from "./_components/ConfigTab";
 import { PreviewTab } from "./_components/PreviewTab";
+import { StatsTab } from "./_components/StatsTab";
 import { VersionsTab } from "./_components/VersionsTab";
 import { TABS } from "./constants";
 import { s } from "./styles";
@@ -22,8 +23,9 @@ export function SkillEditor({ skill, tab, onTab }: { skill: Skill; tab: string; 
       </div>
       <div style={s.body}>
         {tab === "preview" && <PreviewTab skill={skill} />}
+        {tab === "stats" && <StatsTab skill={skill} />}
         {tab === "versions" && <VersionsTab skill={skill} />}
-        {tab !== "preview" && tab !== "versions" && <ConfigTab skill={skill} />}
+        {tab !== "preview" && tab !== "stats" && tab !== "versions" && <ConfigTab skill={skill} />}
       </div>
     </div>
   );

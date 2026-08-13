@@ -42,4 +42,15 @@ export const s = {
     overflow: "hidden",
   } as CSSProperties,
   metaRow: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" } satisfies CSSProperties,
+  statsRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    marginTop: 12,
+    paddingTop: 10,
+    borderTop: "1px solid var(--border)",
+    fontSize: 12.5,
+    color: "var(--text-muted)",
+  } satisfies CSSProperties,
+  statAccept: { color: "var(--ok, var(--accent))", fontWeight: 600 } satisfies CSSProperties,
 } as const;

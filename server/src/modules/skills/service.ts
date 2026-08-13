@@ -1,9 +1,19 @@
 import type { Container } from '../../platform/container.js';
-import type { Skill, SkillImportPreview, SkillSource, SkillType } from '@devdigest/shared';
+import type {
+  Skill,
+  SkillImportPreview,
+  SkillSource,
+  SkillStats,
+  SkillStatsSummary,
+  SkillType,
+} from '@devdigest/shared';
 import { SkillsRepository } from './repository.js';
 import {
   filenameStem,
   parseSkillMarkdown,
+  ratio,
+  statsWindowStart,
+  summariseFindings,
   toSkillDto,
   toSkillVersionDto,
   type SkillVersionDto,
@@ -47,9 +57,18 @@ export interface UpdateSkillInput {
 
 export class SkillsService {
   private repo: SkillsRepository;
+  // Typed off the container rather than imported from the sibling modules:
+  // this module composes their public repositories, it does not depend on
+  // their folders.
+  /** Owner of `agent_skills` — this module never queries that table itself. */
+  private agentsRepo: Container['agentsRepo'];
+  /** Owner of `agent_runs`/`run_traces`/`reviews`/`findings`, same reason. */
+  private reviewRepo: Container['reviewRepo'];
 
   constructor(container: Container) {
     this.repo = container.skillsRepo;
+    this.agentsRepo = container.agentsRepo;
+    this.reviewRepo = container.reviewRepo;
   }
 
   async list(workspaceId: string): Promise<Skill[]> {
@@ -133,6 +152,111 @@ export class SkillsService {
     if (!skill) return undefined;
     const row = await this.repo.getVersion(skillId, version);
     return row ? toSkillVersionDto(row) : undefined;
+  }
+
+  /**
+   * Restore an old body — deliberately NOT a rollback.
+   *
+   * The snapshot is written back through the normal update path, so
+   * `isBodyChange` snapshots it as a NEW version. History is append-only: v1 →
+   * v2 → restore v1 leaves three rows in `skill_versions` and lands on v3.
+   * Nothing is ever rewritten or deleted, which is what makes an eval run
+   * against a past version reproducible.
+   *
+   * Restoring the body that is already current is a no-op that returns the
+   * skill unchanged — `isBodyChange` compares bodies, so no version is burned.
+   *
+   * Returns undefined when the skill or that version doesn't exist; the route
+   * maps that to 404.
+   */
+  async restoreVersion(
+    workspaceId: string,
+    skillId: string,
+    version: number,
+  ): Promise<Skill | undefined> {
+    // Workspace check first, like listVersions/getVersion: a snapshot must not
+    // even be read for a skill belonging to another workspace.
+    const skill = await this.repo.getById(workspaceId, skillId);
+    if (!skill) return undefined;
+    const snapshot = await this.repo.getVersion(skillId, version);
+    if (!snapshot) return undefined;
+    const row = await this.repo.update(workspaceId, skillId, { body: snapshot.body });
+    return row ? toSkillDto(row) : undefined;
+  }
+
+  // ---- stats read-model ----------------------------------------------------
+
+  /**
+   * Full Stats tab payload for one skill.
+   *
+   * Composed rather than joined in one place: `agent_skills` belongs to the
+   * agents repository and the run/finding tables to the reviews repository, so
+   * each owner answers its own question and this method assembles the result.
+   * That is exactly what the shared repositories on the container are for.
+   */
+  async stats(workspaceId: string, skillId: string): Promise<SkillStats | undefined> {
+    const skill = await this.repo.getById(workspaceId, skillId);
+    if (!skill) return undefined;
+
+    const since = statsWindowStart();
+    const [agents, pullRows, findingRows] = await Promise.all([
+      this.agentsRepo.agentsUsingSkill(workspaceId, skillId),
+      this.reviewRepo.pullStatsBySkill(workspaceId, since, skillId),
+      this.reviewRepo.findingStatsBySkill(workspaceId, since, skillId),
+    ]);
+
+    const findings = summariseFindings(findingRows);
+    return {
+      skill_id: skillId,
+      used_by_agents: agents.filter((a) => a.linkEnabled).length,
+      linked_agents: agents.length,
+      pull_frequency: ratio(pullRows[0]?.pulled ?? 0, pullRows[0]?.total ?? 0),
+      accept_rate: ratio(findings.accepted, findings.accepted + findings.dismissed),
+      findings_30d: findings.total,
+      findings_by_category: findings.byCategory,
+      agents: agents.map((a) => ({ id: a.id, name: a.name })),
+    };
+  }
+
+  /**
+   * The three footer numbers for EVERY skill in the workspace, in a fixed
+   * number of queries regardless of how many skills there are — the skills
+   * list renders a card per skill and must not fan out into N requests.
+   *
+   * Skills with no links or no runs still appear, with zeroes and nulls: an
+   * absent row would make the card silently drop its footer.
+   */
+  async statsForAll(workspaceId: string): Promise<SkillStatsSummary[]> {
+    const since = statsWindowStart();
+    const [skills, links, pullRows, findingRows] = await Promise.all([
+      this.repo.list(workspaceId),
+      this.agentsRepo.skillAgentLinks(workspaceId),
+      this.reviewRepo.pullStatsBySkill(workspaceId, since),
+      this.reviewRepo.findingStatsBySkill(workspaceId, since),
+    ]);
+
+    const enabledLinks = new Map<string, number>();
+    for (const l of links) {
+      if (l.linkEnabled) enabledLinks.set(l.skillId, (enabledLinks.get(l.skillId) ?? 0) + 1);
+    }
+    const pullBySkill = new Map(pullRows.map((r) => [r.skillId, r]));
+    const findingsBySkill = new Map<string, typeof findingRows>();
+    for (const r of findingRows) {
+      const list = findingsBySkill.get(r.skillId);
+      if (list) list.push(r);
+      else findingsBySkill.set(r.skillId, [r]);
+    }
+
+    return skills.map((s) => {
+      const pull = pullBySkill.get(s.id);
+      const f = summariseFindings(findingsBySkill.get(s.id) ?? []);
+      return {
+        skill_id: s.id,
+        used_by_agents: enabledLinks.get(s.id) ?? 0,
+        pull_frequency: ratio(pull?.pulled ?? 0, pull?.total ?? 0),
+        accept_rate: ratio(f.accepted, f.accepted + f.dismissed),
+      };
+    });
   }
 
   /**

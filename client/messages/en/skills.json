@@ -102,6 +102,7 @@
     "tabs": {
       "config": "Config",
       "preview": "Preview",
+      "stats": "Stats",
       "versions": "Versions"
     },
     "createFromScratch": "Create from scratch",
@@ -125,6 +126,32 @@
     "newSkillBody": "# Untitled skill\n\nDescribe the rule the reviewing agent should apply.\n",
     "previewSubtitle": "Rendered as the reviewing agent receives it.",
     "untrustedNotice": "This skill came from an untrusted source. At review time its body is wrapped in <untrusted> delimiters and passed to the model as data, never as instructions."
+  },
+  "stats": {
+    "heading": "Stats",
+    "subtitle": "Last 30 days. Findings come from reviews by agents that use this skill — nothing records which skill produced a given finding, so read these as association, not attribution.",
+    "usedBy": "Used by",
+    "usedByUnit": "{count, plural, one {agent} other {agents}}",
+    "pullFrequency": "Pull frequency",
+    "pullFrequencyHint": "Share of prompt-assembling runs by these agents that actually included this skill's block.",
+    "acceptRate": "Accept rate",
+    "acceptRateHint": "Accepted ÷ triaged findings. Untriaged findings are not counted either way.",
+    "findings": "Findings (30d)",
+    "agentsHeading": "Agents using this skill",
+    "agentsEmpty": "No agent links this skill yet.",
+    "open": "Open",
+    "linkDisabled": "link off",
+    "categoryHeading": "Findings by category",
+    "categoryEmpty": "No findings in the last 30 days.",
+    "noData": "—",
+    "loadError": "Could not load stats."
+  },
+  "card": {
+    "agents": "{count, plural, one {# agent} other {# agents}}",
+    "pull": "{percent}% pull",
+    "accept": "{percent}% accept",
+    "pullNone": "— pull",
+    "acceptNone": "— accept"
   },
   "versions": {
     "heading": "Versions",

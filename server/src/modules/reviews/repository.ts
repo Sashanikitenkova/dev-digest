@@ -22,6 +22,7 @@ export type ReviewRow = typeof t.reviews.$inferSelect;
 import * as reviewRepo from './repository/review.repo.js';
 import * as runRepo from './repository/run.repo.js';
 import * as pullRepo from './repository/pull.repo.js';
+import * as skillStatsRepo from './repository/skill-stats.repo.js';
 
 export class ReviewRepository {
   constructor(private db: Db) {}
@@ -176,5 +177,29 @@ export class ReviewRepository {
 
   getRunTrace(runId: string): Promise<RunTrace | undefined> {
     return runRepo.getRunTrace(this.db, runId);
+  }
+
+  // ---- skill stats read-model ---------------------------------------------
+  // Exposed here (not in the skills module) because every table involved is
+  // owned by this aggregate. `modules/skills/service.ts` composes these with
+  // the agents repository through the container. See skill-stats.repo.ts for
+  // what the numbers do and do not mean.
+
+  /** Runs per skill and how many injected its block. Omit `skillId` for all. */
+  pullStatsBySkill(
+    workspaceId: string,
+    since: Date,
+    skillId?: string,
+  ): Promise<skillStatsRepo.SkillPullRow[]> {
+    return skillStatsRepo.pullStatsBySkill(this.db, workspaceId, since, skillId);
+  }
+
+  /** Findings by category from agents linking each skill. Association, not cause. */
+  findingStatsBySkill(
+    workspaceId: string,
+    since: Date,
+    skillId?: string,
+  ): Promise<skillStatsRepo.SkillFindingRow[]> {
+    return skillStatsRepo.findingStatsBySkill(this.db, workspaceId, since, skillId);
   }
 }

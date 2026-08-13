@@ -8,8 +8,15 @@ import type { AgentRow, AgentVersionRow } from './repository.js';
  * implementations.
  */
 
-/** Map a persisted agent row to the public `Agent` DTO. */
-export function toAgentDto(row: AgentRow): Agent {
+/**
+ * Map a persisted agent row to the public `Agent` DTO.
+ *
+ * `skillsCount` is optional and the key is omitted entirely when it isn't
+ * supplied — a `skills_count: 0` on a single-agent read would claim the agent
+ * has no skills, when the truth is that nobody counted. Only the list endpoint,
+ * which fetches the grouped count for every agent at once, passes it.
+ */
+export function toAgentDto(row: AgentRow, skillsCount?: number): Agent {
   return {
     id: row.id,
     name: row.name,
@@ -23,6 +30,7 @@ export function toAgentDto(row: AgentRow): Agent {
     strategy: row.strategy as ReviewStrategy,
     ci_fail_on: row.ciFailOn as CiFailOn,
     repo_intel: row.repoIntel,
+    ...(skillsCount !== undefined ? { skills_count: skillsCount } : {}),
   };
 }
 

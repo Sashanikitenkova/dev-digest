@@ -10,7 +10,13 @@ import { AppShell } from "../../../components/app-shell";
 import { SkillCard } from "../_components/SkillCard";
 import { typeColor } from "../_components/SkillCard/helpers";
 import { SkillEditor, VALID_TABS } from "./_components/SkillEditor";
-import { useDeleteSkill, useSkill, useSkills, useUpdateSkill } from "../../../lib/hooks/skills";
+import {
+  useDeleteSkill,
+  useSkill,
+  useSkills,
+  useSkillsStats,
+  useUpdateSkill,
+} from "../../../lib/hooks/skills";
 import { ApiError } from "../../../lib/api";
 import { routes } from "../../../lib/routes";
 import { s } from "./styles";
@@ -23,9 +29,15 @@ export default function SkillEditorPage() {
   const { id } = params;
 
   const { data: skills } = useSkills();
+  const { data: skillStats } = useSkillsStats();
   const { data: skill, isLoading, isError, error, refetch } = useSkill(id);
   const update = useUpdateSkill();
   const del = useDeleteSkill();
+
+  const statsById = React.useMemo(
+    () => new Map((skillStats ?? []).map((row) => [row.skill_id, row])),
+    [skillStats],
+  );
 
   const tab = VALID_TABS.includes(search.get("tab") ?? "") ? search.get("tab")! : "config";
   const setTab = (next: string) => {
@@ -75,6 +87,7 @@ export default function SkillEditorPage() {
                 key={sk.id}
                 skill={sk}
                 active={sk.id === id}
+                {...(statsById.get(sk.id) ? { stats: statsById.get(sk.id)! } : {})}
                 onClick={() => router.push(`${routes.skill(sk.id)}?tab=${tab}`)}
                 onToggle={(enabled) => update.mutate({ id: sk.id, patch: { enabled } })}
               />

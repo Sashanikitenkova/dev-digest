@@ -87,6 +87,7 @@ export function AgentsListView() {
               <AgentCard
                 key={a.id}
                 ag={a}
+                {...(a.skills_count !== undefined ? { skillCount: a.skills_count } : {})}
                 onClick={() => router.push(`${routes.agent(a.id)}?tab=config`)}
                 onToggle={(enabled) => update.mutate({ id: a.id, patch: { enabled } })}
               />

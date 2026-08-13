@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, countDistinct, desc, eq } from 'drizzle-orm';
 import type { Db } from '../../db/client.js';
 import * as t from '../../db/schema.js';
 import type { CiFailOn, Provider, ReviewStrategy } from '@devdigest/shared';
@@ -212,6 +212,76 @@ export class AgentsRepository {
   async skillIdsForAgent(agentId: string): Promise<string[]> {
     const links = await this.linkedSkills(agentId);
     return links.map((l) => l.skill.id);
+  }
+
+  /**
+   * Agents linking one skill, each with that link's own switch. Ordered by name
+   * so the Stats tab's "agents using this skill" list is stable across reloads.
+   *
+   * Deliberately does NOT filter on `skills.enabled`. The caller is the skill's
+   * own page, where that switch is already on screen as the card toggle —
+   * emptying the list whenever the skill is off would read as "nobody uses
+   * this", which is a different and wrong statement.
+   */
+  async agentsUsingSkill(
+    workspaceId: string,
+    skillId: string,
+  ): Promise<{ id: string; name: string; linkEnabled: boolean }[]> {
+    return this.db
+      .select({ id: t.agents.id, name: t.agents.name, linkEnabled: t.agentSkills.enabled })
+      .from(t.agentSkills)
+      .innerJoin(t.agents, eq(t.agentSkills.agentId, t.agents.id))
+      .where(and(eq(t.agentSkills.skillId, skillId), eq(t.agents.workspaceId, workspaceId)))
+      .orderBy(asc(t.agents.name));
+  }
+
+  /**
+   * Every skill→agent link in the workspace, flat, in ONE query. The batch
+   * counterpart of `agentsUsingSkill`, for the skills-list stats endpoint —
+   * grouping happens in the service so a workspace with N skills still costs
+   * one round-trip instead of N.
+   */
+  async skillAgentLinks(
+    workspaceId: string,
+  ): Promise<{ skillId: string; agentId: string; linkEnabled: boolean }[]> {
+    return this.db
+      .select({
+        skillId: t.agentSkills.skillId,
+        agentId: t.agentSkills.agentId,
+        linkEnabled: t.agentSkills.enabled,
+      })
+      .from(t.agentSkills)
+      .innerJoin(t.agents, eq(t.agentSkills.agentId, t.agents.id))
+      .where(eq(t.agents.workspaceId, workspaceId));
+  }
+
+  /**
+   * Per-agent count of skills that actually contribute a prompt block — BOTH
+   * `agent_skills.enabled` and `skills.enabled` true. Stricter than the skill
+   * side's `used_by_agents` on purpose (see the `Agent.skills_count` docblock).
+   *
+   * Grouped in SQL rather than per agent: the agents list renders this badge
+   * for every card, and a per-agent query would be a textbook N+1. Agents with
+   * no enabled skills are simply absent from the map — callers default to 0.
+   */
+  async countEnabledSkillsByAgent(workspaceId: string): Promise<Map<string, number>> {
+    const rows = await this.db
+      .select({
+        agentId: t.agentSkills.agentId,
+        total: countDistinct(t.agentSkills.skillId),
+      })
+      .from(t.agentSkills)
+      .innerJoin(t.agents, eq(t.agentSkills.agentId, t.agents.id))
+      .innerJoin(t.skills, eq(t.agentSkills.skillId, t.skills.id))
+      .where(
+        and(
+          eq(t.agents.workspaceId, workspaceId),
+          eq(t.agentSkills.enabled, true),
+          eq(t.skills.enabled, true),
+        ),
+      )
+      .groupBy(t.agentSkills.agentId);
+    return new Map(rows.map((r) => [r.agentId, Number(r.total)]));
   }
 
   /** Link a skill to an agent at a given order (idempotent: upserts order). */

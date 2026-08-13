@@ -158,6 +158,42 @@ export const SkillVersion = z.object({
 });
 export type SkillVersion = z.infer<typeof SkillVersion>;
 
+/**
+ * The three numbers the skill CARD shows in its footer, for every skill at
+ * once (`GET /skills/stats`). Rates are 0..1 on the wire; the UI formats them
+ * as percentages.
+ *
+ * IMPORTANT — what `accept_rate` does and does not mean. Nothing in the schema
+ * attributes a finding to the skill that provoked it: `findings` hangs off
+ * `reviews`, and a review knows only its AGENT. So every finding-derived number
+ * here is "produced by agents that use this skill", NOT "caused by this skill".
+ * The UI must say so; presenting it as causal would be a lie the data can't back.
+ *
+ * `pull_frequency` is null when no run in the window used a linked agent, and
+ * `accept_rate` is null when nothing was triaged — null means "no evidence",
+ * which is a different statement from 0.
+ */
+export const SkillStatsSummary = z.object({
+  skill_id: z.string(),
+  /** Agents whose link is enabled (the skill's own switch is shown separately). */
+  used_by_agents: z.number().int(),
+  pull_frequency: z.number().min(0).max(1).nullable(),
+  accept_rate: z.number().min(0).max(1).nullable(),
+});
+export type SkillStatsSummary = z.infer<typeof SkillStatsSummary>;
+
+/** Full Stats tab payload (`GET /skills/:id/stats`). Windowed to 30 days. */
+export const SkillStats = SkillStatsSummary.extend({
+  /** Every link, enabled or not — `used_by_agents` counts only enabled ones. */
+  linked_agents: z.number().int(),
+  findings_30d: z.number().int(),
+  findings_by_category: z.array(
+    z.object({ category: z.string(), count: z.number().int() }),
+  ),
+  agents: z.array(z.object({ id: z.string(), name: z.string() })),
+});
+export type SkillStats = z.infer<typeof SkillStats>;
+
 export const CommunitySkill = z.object({
   name: z.string(),
   repo: z.string(),
@@ -238,6 +274,18 @@ export const Agent = z.object({
   // Inject repo-intel context (repo skeleton + callers + rank note) into this
   // agent's review prompt. Default on; gated again by the global flag.
   repo_intel: z.boolean().default(true),
+  /**
+   * How many skills actually contribute a prompt block to this agent — links
+   * where `agent_skills.enabled` AND `skills.enabled`. Note this is stricter
+   * than `SkillStatsSummary.used_by_agents`, which ignores the skill's own
+   * switch: there the skill is fixed and its switch is already on screen, here
+   * the question is "how many blocks does this agent get".
+   *
+   * Optional because only the LIST endpoint pays for the grouped count; single
+   * agent reads (get/create/update) leave it undefined rather than fire a
+   * second query for a badge nothing is rendering.
+   */
+  skills_count: z.number().int().optional(),
 });
 export type Agent = z.infer<typeof Agent>;
 

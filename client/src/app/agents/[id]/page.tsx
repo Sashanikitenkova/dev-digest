@@ -86,6 +86,7 @@ export default function AgentEditorPage() {
                 key={a.id}
                 ag={a}
                 active={a.id === id}
+                {...(a.skills_count !== undefined ? { skillCount: a.skills_count } : {})}
                 onClick={() => router.push(`${routes.agent(a.id)}?tab=${tab}`)}
                 onToggle={(enabled) => update.mutate({ id: a.id, patch: { enabled } })}
               />

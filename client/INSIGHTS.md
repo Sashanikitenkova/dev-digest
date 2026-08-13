@@ -116,7 +116,29 @@ wrong switch. In a panel with several toggles, the reliable RTL selector is
 or `getAllByRole("switch")[i]` when they don't. Evidence:
 `client/src/app/repos/[repoId]/pulls/[number]/_components/FindingsPanel/FindingsPanel.test.tsx`.
 
+### 2026-08-13 — [Context] The vendored `Donut` formats every legend value as currency
+
+`src/vendor/ui/charts/Donut.tsx` defaults to `valuePrefix="$"` and
+`value.toFixed(2)`, so a plain `<Donut segments={counts} />` renders "52
+findings" as `$52.00`. This is visible in the product design mockups themselves,
+which were clearly drawn with the component untouched. It now takes a `decimals`
+prop (default `2`, so existing callers are unaffected); pass
+`valuePrefix="" decimals={0}` for counts. Evidence:
+`client/src/app/skills/[id]/_components/SkillEditor/_components/StatsTab/StatsTab.tsx`.
+
 ## Recurring Errors & Fixes
+
+### 2026-08-13 — [Context] Adding a 2nd parameter to a DTO mapper silently breaks `rows.map(mapper)`
+
+`AgentsService.list` was `rows.map(toAgentDto)`. Giving `toAgentDto` an optional
+second parameter (`skillsCount`) meant `Array.map` started feeding it the
+ELEMENT INDEX, labelling every agent with its position in the list. It
+typechecks cleanly — `map`'s index is a `number` and the parameter takes a
+`number` — so nothing catches it but a test that asserts the value. When a
+mapper used point-free in a `.map()` gains a parameter, convert the call to an
+explicit arrow in the same edit. Evidence:
+`server/src/modules/agents/service.ts:list`,
+`client/src/app/agents/_components/AgentsListView/AgentsListView.test.tsx`.
 
 ### 2026-08-12 — [Context] Two hooks in one component share the `lib/api` mock — route by URL, not `mockResolvedValue`
 

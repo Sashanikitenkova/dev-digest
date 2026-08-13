@@ -175,6 +175,45 @@ d('skills module', () => {
     await app.close();
   });
 
+  it('restore re-applies an old body as a NEW version, rewriting nothing', async () => {
+    const app = await makeApp();
+    const id = (
+      await app.inject({ method: 'POST', url: '/skills', payload: { ...createBody, name: 'restorable' } })
+    ).json().id as string;
+
+    await app.inject({ method: 'PUT', url: `/skills/${id}`, payload: { body: 'second body' } });
+    const restored = await app.inject({
+      method: 'POST',
+      url: `/skills/${id}/versions/1/restore`,
+    });
+
+    // v1 → v2 → restore(v1) must land on v3, NOT rewind to v1: the history is
+    // append-only, so a past eval run still points at the text it scored.
+    expect(restored.statusCode).toBe(200);
+    expect(restored.json()).toMatchObject({ version: 3, body: createBody.body });
+
+    const versions = (await app.inject({ method: 'GET', url: `/skills/${id}/versions` })).json();
+    expect(versions.map((v: { version: number }) => v.version)).toEqual([3, 2, 1]);
+    expect(versions[2].body).toBe(createBody.body);
+    expect(versions[1].body).toBe('second body');
+    await app.close();
+  });
+
+  it('restoring the body that is already current burns no version', async () => {
+    const app = await makeApp();
+    const id = (
+      await app.inject({ method: 'POST', url: '/skills', payload: { ...createBody, name: 'noop-restore' } })
+    ).json().id as string;
+
+    const res = await app.inject({ method: 'POST', url: `/skills/${id}/versions/1/restore` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().version).toBe(1);
+    expect((await app.inject({ method: 'GET', url: `/skills/${id}/versions` })).json()).toHaveLength(
+      1,
+    );
+    await app.close();
+  });
+
   it('404s for unknown skills and versions; 422 for a bad :version', async () => {
     const app = await makeApp();
     const id = (await app.inject({ method: 'POST', url: '/skills', payload: createBody })).json()
@@ -191,6 +230,12 @@ d('skills module', () => {
     expect((await app.inject({ method: 'GET', url: `/skills/${id}/versions/abc` })).statusCode).toBe(
       422,
     );
+    expect(
+      (await app.inject({ method: 'POST', url: `/skills/${id}/versions/99/restore` })).statusCode,
+    ).toBe(404);
+    expect(
+      (await app.inject({ method: 'POST', url: `/skills/${ghost}/versions/1/restore` })).statusCode,
+    ).toBe(404);
     expect((await app.inject({ method: 'DELETE', url: `/skills/${ghost}` })).statusCode).toBe(404);
     await app.close();
   });

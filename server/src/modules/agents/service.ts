@@ -55,9 +55,22 @@ export class AgentsService {
     this.repo = new AgentsRepository(container.db);
   }
 
+  /**
+   * List agents, each carrying how many enabled skills it actually pulls.
+   *
+   * The count comes from ONE grouped query rather than a lookup per agent —
+   * the badge renders on every card, so a per-agent query would be an N+1 on
+   * the most-visited page in the section.
+   *
+   * Note the explicit arrow: `rows.map(toAgentDto)` would hand `map`'s index
+   * argument to the count parameter and label every agent with its position.
+   */
   async list(workspaceId: string): Promise<Agent[]> {
-    const rows = await this.repo.list(workspaceId);
-    return rows.map(toAgentDto);
+    const [rows, counts] = await Promise.all([
+      this.repo.list(workspaceId),
+      this.repo.countEnabledSkillsByAgent(workspaceId),
+    ]);
+    return rows.map((row) => toAgentDto(row, counts.get(row.id) ?? 0));
   }
 
   async get(workspaceId: string, id: string): Promise<Agent | undefined> {

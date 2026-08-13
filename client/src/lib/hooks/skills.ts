@@ -10,7 +10,14 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
-import type { Skill, SkillImportPreview, SkillSource, SkillType } from "@devdigest/shared";
+import type {
+  Skill,
+  SkillImportPreview,
+  SkillSource,
+  SkillStats,
+  SkillStatsSummary,
+  SkillType,
+} from "@devdigest/shared";
 
 /** One immutable body snapshot from `GET /skills/:id/versions` (newest first). */
 export interface SkillVersionRecord {
@@ -92,6 +99,44 @@ export function useSkillVersions(id: string | null | undefined) {
     queryKey: ["skill-versions", id],
     queryFn: () => api.get<SkillVersionRecord[]>(`/skills/${id}/versions`),
     enabled: !!id,
+  });
+}
+
+/**
+ * Restore an old body. The server appends it as a NEW version rather than
+ * rewinding, so `["skill", id]` and `["skill-versions", id]` are both stale
+ * afterwards — the skill's `version` changed and the history gained a row.
+ */
+export function useRestoreSkillVersion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, version }: { id: string; version: number }) =>
+      api.post<Skill>(`/skills/${id}/versions/${version}/restore`, {}),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["skills"] });
+      qc.setQueryData(["skill", data.id], data);
+      qc.invalidateQueries({ queryKey: ["skill-versions", data.id] });
+    },
+  });
+}
+
+/** Full Stats tab payload for one skill. */
+export function useSkillStats(id: string | null | undefined) {
+  return useQuery({
+    queryKey: ["skill-stats", id],
+    queryFn: () => api.get<SkillStats>(`/skills/${id}/stats`),
+    enabled: !!id,
+  });
+}
+
+/**
+ * Footer stats for every skill, as ONE request — the list renders a card per
+ * skill, and a per-card fetch would fan out into N requests for three numbers.
+ */
+export function useSkillsStats() {
+  return useQuery({
+    queryKey: ["skills-stats"],
+    queryFn: () => api.get<SkillStatsSummary[]>("/skills/stats"),
   });
 }
 

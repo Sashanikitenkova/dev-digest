@@ -17,7 +17,12 @@ import {
   Skeleton,
 } from "@devdigest/ui";
 import { AppShell } from "../../../../components/app-shell";
-import { useCreateSkill, useSkills, useUpdateSkill } from "../../../../lib/hooks/skills";
+import {
+  useCreateSkill,
+  useSkills,
+  useSkillsStats,
+  useUpdateSkill,
+} from "../../../../lib/hooks/skills";
 import { routes } from "../../../../lib/routes";
 import { SkillCard } from "../SkillCard";
 import { filterSkills, isUntrusted, typeColor } from "../SkillCard/helpers";
@@ -30,6 +35,9 @@ export function SkillsListView() {
   const t = useTranslations("skills");
   const router = useRouter();
   const { data: skills, isLoading, isError, refetch } = useSkills();
+  // Separate query on purpose: stats are slower to compute than the list, and
+  // the cards must render immediately rather than block on the footer numbers.
+  const { data: stats } = useSkillsStats();
   const update = useUpdateSkill();
   const create = useCreateSkill();
   const [search, setSearch] = React.useState("");
@@ -39,6 +47,10 @@ export function SkillsListView() {
   const all = skills ?? [];
   const list = filterSkills(all, search);
   const selected = selectedSkill(all, selectedId);
+  const statsById = React.useMemo(
+    () => new Map((stats ?? []).map((row) => [row.skill_id, row])),
+    [stats],
+  );
 
   const createFromScratch = () =>
     create.mutate(
@@ -120,6 +132,7 @@ export function SkillsListView() {
                     key={sk.id}
                     skill={sk}
                     active={sk.id === selectedId}
+                    {...(statsById.get(sk.id) ? { stats: statsById.get(sk.id)! } : {})}
                     onClick={() => setSelectedId(sk.id)}
                     onToggle={(enabled) => update.mutate({ id: sk.id, patch: { enabled } })}
                   />

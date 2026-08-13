@@ -11,12 +11,16 @@ import { IMPORT_BODY_LIMIT_BYTES } from './constants.js';
 /**
  * Skills module.
  *   GET    /skills                        → list (workspace-scoped)
+ *   GET    /skills/stats                  → card-footer stats for ALL skills
  *   GET    /skills/:id                    → one skill
+ *   GET    /skills/:id/stats              → full Stats tab payload
  *   POST   /skills                        → create (writes version 1)
  *   PUT    /skills/:id                    → update; body change → new version
  *   DELETE /skills/:id                    → delete; agent links cascade
  *   GET    /skills/:id/versions           → body history (newest first)
  *   GET    /skills/:id/versions/:version  → one body snapshot (Diff/Restore)
+ *   POST   /skills/:id/versions/:version/restore
+ *                                         → re-apply an old body as a NEW version
  *   POST   /skills/import/preview         → parse a .md/.zip; PERSISTS NOTHING
  */
 
@@ -77,11 +81,26 @@ export default async function skillsRoutes(appBase: FastifyInstance) {
     },
   );
 
+  // Registered ahead of `/skills/:id` so the file reads unambiguously. Fastify
+  // would prefer the static segment either way, but relying on that silently
+  // makes the ordering load-bearing for a reader who doesn't know the router.
+  app.get('/skills/stats', async (req) => {
+    const { workspaceId } = await getContext(app.container, req);
+    return service.statsForAll(workspaceId);
+  });
+
   app.get('/skills/:id', { schema: { params: IdParams } }, async (req) => {
     const { workspaceId } = await getContext(app.container, req);
     const skill = await service.get(workspaceId, req.params.id);
     if (!skill) throw new NotFoundError('Skill not found');
     return skill;
+  });
+
+  app.get('/skills/:id/stats', { schema: { params: IdParams } }, async (req) => {
+    const { workspaceId } = await getContext(app.container, req);
+    const stats = await service.stats(workspaceId, req.params.id);
+    if (!stats) throw new NotFoundError('Skill not found');
+    return stats;
   });
 
   app.post('/skills', { schema: { body: CreateSkillBody } }, async (req, reply) => {
@@ -135,4 +154,18 @@ export default async function skillsRoutes(appBase: FastifyInstance) {
     if (!version) throw new NotFoundError('Skill version not found');
     return version;
   });
+
+  // POST, not PUT: restoring is not idempotent — it APPENDS a version rather
+  // than putting the skill into a named state, so replaying it twice is two
+  // distinct events in the history.
+  app.post(
+    '/skills/:id/versions/:version/restore',
+    { schema: { params: VersionParams } },
+    async (req) => {
+      const { workspaceId } = await getContext(app.container, req);
+      const skill = await service.restoreVersion(workspaceId, req.params.id, req.params.version);
+      if (!skill) throw new NotFoundError('Skill version not found');
+      return skill;
+    },
+  );
 }

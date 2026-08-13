@@ -1,15 +1,15 @@
 /* Versions tab — immutable body snapshots, newest first, with Diff + Restore.
 
-   Restore is deliberately NOT a rollback: it PUTs the old body back through
-   the normal update path, so the server writes it as a *new* version. History
-   is append-only and never rewritten — the confirm copy says so. */
+   Restore is deliberately NOT a rollback: the server re-applies the old body
+   through the normal update path, so it lands as a *new* version. History is
+   append-only and never rewritten — the confirm copy says so. */
 "use client";
 
 import React from "react";
 import { useTranslations } from "next-intl";
 import { Badge, Button, ErrorState, Skeleton } from "@devdigest/ui";
 import type { Skill } from "@devdigest/shared";
-import { useSkillVersions, useUpdateSkill } from "../../../../../../../lib/hooks/skills";
+import { useRestoreSkillVersion, useSkillVersions } from "../../../../../../../lib/hooks/skills";
 import { useToast } from "../../../../../../../lib/toast";
 import { diffLines, formatVersionDate } from "./helpers";
 import { s } from "./styles";
@@ -18,13 +18,13 @@ export function VersionsTab({ skill }: { skill: Skill }) {
   const t = useTranslations("skills");
   const toast = useToast();
   const { data: versions, isLoading, isError, refetch } = useSkillVersions(skill.id);
-  const update = useUpdateSkill();
+  const restoreVersion = useRestoreSkillVersion();
   const [openDiff, setOpenDiff] = React.useState<number | null>(null);
 
-  const restore = (version: number, body: string) => {
+  const restore = (version: number) => {
     if (!window.confirm(t("versions.restoreConfirm"))) return;
-    update.mutate(
-      { id: skill.id, patch: { body } },
+    restoreVersion.mutate(
+      { id: skill.id, version },
       { onSuccess: (data) => toast.success(t("versions.restored", { version: data.version })) },
     );
   };
@@ -63,8 +63,8 @@ export function VersionsTab({ skill }: { skill: Skill }) {
                     kind="secondary"
                     size="sm"
                     icon="History"
-                    disabled={update.isPending}
-                    onClick={() => restore(v.version, v.body)}
+                    disabled={restoreVersion.isPending}
+                    onClick={() => restore(v.version)}
                   >
                     {t("versions.restore")}
                   </Button>

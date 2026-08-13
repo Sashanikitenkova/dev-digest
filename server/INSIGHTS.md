@@ -141,6 +141,36 @@ choice explicitly — the type makes the field optional but not the reason.
 Evidence: `server/src/modules/repo-intel/types.ts:79-84`,
 `server/src/modules/blast/helpers.ts:22-45`.
 
+### 2026-08-13 — [Decision] Skill usage stats are an association with the AGENT, never attribution to the skill
+
+Nothing in the schema records which skill provoked a finding: `findings` hangs
+off `reviews`, and a review knows only its `agent_id`. So `GET /skills/:id/stats`
+can only report findings produced by agents that link the skill — the contract
+docblock and the tab subtitle both say so, deliberately. Similarly, no table
+links a run to a skill, so `pull_frequency` is derived by looking for the
+`### <name>` heading `formatSkillBlocks` writes into
+`run_traces.trace.prompt_assembly.skills` (via `strpos`, which is a literal
+search and needs no `LIKE` escaping). That means a renamed skill orphans its
+history and a name that prefixes another skill's name can over-match; fixing it
+properly needs a `run_skills` link table written at review time. Rates return
+`null` rather than `0` when the denominator is empty, because "never used" and
+"offered and never pulled" are different facts. Evidence:
+`server/src/modules/reviews/repository/skill-stats.repo.ts`,
+`server/src/modules/skills/helpers.ts:ratio`, `test/skills-stats.it.test.ts`.
+
+### 2026-08-13 — [Context] `used_by_agents` and `Agent.skills_count` count deliberately different things
+
+Both count `agent_skills` rows and they disagree on purpose. `skills_count` on
+the agent DTO requires BOTH `agent_skills.enabled` and `skills.enabled` — the
+question there is "how many blocks does this agent actually get". `used_by_agents`
+on the skill's Stats tab gates only on the link, because the skill's own switch
+is already visible as the card toggle and gating on it would show "0 agents" for
+every disabled skill. Don't "fix" one to match the other. `skills_count` is also
+optional and omitted (not zeroed) on single-agent reads, since only the list
+endpoint pays for the grouped count. Evidence:
+`server/src/modules/agents/repository.ts:countEnabledSkillsByAgent`,
+`server/src/modules/skills/service.ts:stats`.
+
 ## Tool & Library Notes
 
 ### 2026-07-20 — [Context] `getConventionSamples` returns file PATHS, not code
@@ -163,6 +193,17 @@ means "no index", not "no conventions". Evidence:
 ### 2026-07-19 — [Context] File uploads arrive as base64 JSON, not multipart — and need a per-route `bodyLimit`
 
 `server/package.json` carries no `@fastify/multipart`, and the skills importer deliberately doesn't add one: the client base64-encodes the file into `{ filename, content_base64 }` so the Zod route-validation convention (`fastify-type-provider-zod`) still applies to an upload. The catch is `app.ts:49` sets a global `bodyLimit: 1_048_576`, which a base64-encoded archive (~4/3 expansion) exceeds almost immediately. Fastify accepts `bodyLimit` as a per-route option, so raise it on that route alone rather than widening the app default. Evidence: `server/src/modules/skills/routes.ts`, `server/src/modules/skills/constants.ts`.
+
+### 2026-08-13 — [Context] A `Date` bound into a raw `sql` template fails to encode on postgres-js
+
+`db.execute(sql\`… WHERE ran_at >= ${since}\`)` with a JS `Date` throws `The
+"string" argument must be of type string or an instance of Buffer or
+ArrayBuffer. Received an instance of Date`, and the route surfaces it as a bare
+500. The query builder converts `Date` fine — this bites only on the raw `sql`
+path. Bind `since.toISOString()` with an explicit `::timestamptz` cast instead.
+Worth knowing because the failure is at execution time, not typecheck time:
+`tsc` is perfectly happy with the `Date`. Evidence:
+`server/src/modules/reviews/repository/skill-stats.repo.ts`.
 
 ## Recurring Errors & Fixes
 

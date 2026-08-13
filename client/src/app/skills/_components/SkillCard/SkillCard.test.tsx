@@ -4,7 +4,7 @@ import { NextIntlClientProvider } from "next-intl";
 import type { Skill } from "@devdigest/shared";
 import messages from "../../../../../messages/en/skills.json";
 import { SkillCard } from "./SkillCard";
-import { filterSkills, isUntrusted } from "./helpers";
+import { filterSkills, formatCardRate, isUntrusted } from "./helpers";
 
 afterEach(cleanup);
 
@@ -48,6 +48,48 @@ describe("SkillCard", () => {
     fireEvent.click(screen.getByRole("switch"));
     expect(onToggle).toHaveBeenCalledWith(false);
     expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it("renders the usage footer when stats are supplied", () => {
+    renderWithIntl(
+      <SkillCard
+        skill={SKILL}
+        stats={{ skill_id: "sk1", used_by_agents: 3, pull_frequency: 0.71, accept_rate: 0.74 }}
+      />,
+    );
+    expect(screen.getByText("3 agents")).toBeInTheDocument();
+    expect(screen.getByText("71% pull")).toBeInTheDocument();
+    expect(screen.getByText("74% accept")).toBeInTheDocument();
+  });
+
+  it("omits the footer entirely when stats have not loaded", () => {
+    renderWithIntl(<SkillCard skill={SKILL} />);
+    expect(screen.queryByText(/pull$/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/accept$/)).not.toBeInTheDocument();
+  });
+
+  it("says '—' rather than 0% when a rate has no evidence behind it", () => {
+    renderWithIntl(
+      <SkillCard
+        skill={SKILL}
+        stats={{ skill_id: "sk1", used_by_agents: 1, pull_frequency: null, accept_rate: null }}
+      />,
+    );
+    expect(screen.getByText("— pull")).toBeInTheDocument();
+    expect(screen.getByText("— accept")).toBeInTheDocument();
+    expect(screen.queryByText("0% pull")).not.toBeInTheDocument();
+  });
+});
+
+describe("formatCardRate", () => {
+  it("renders a 0..1 rate as whole percent", () => {
+    expect(formatCardRate(0.714)).toBe("71");
+    expect(formatCardRate(1)).toBe("100");
+    expect(formatCardRate(0)).toBe("0");
+  });
+
+  it("passes null through so the caller can pick a different sentence", () => {
+    expect(formatCardRate(null)).toBeNull();
   });
 });
 
