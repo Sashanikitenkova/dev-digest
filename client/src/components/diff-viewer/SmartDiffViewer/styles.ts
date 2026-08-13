@@ -1,0 +1,97 @@
+import type { CSSProperties } from "react";
+
+/** Co-located styles for the SmartDiffViewer. */
+export const sd = {
+  wrap: { display: "flex", flexDirection: "column", gap: 18 } satisfies CSSProperties,
+  group: { display: "flex", flexDirection: "column", gap: 10 } satisfies CSSProperties,
+  groupHeader: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    width: "100%",
+    padding: 0,
+    border: "none",
+    background: "none",
+    cursor: "pointer",
+    textAlign: "left",
+  } satisfies CSSProperties,
+  swatch: (color: string): CSSProperties => ({
+    width: 8,
+    height: 8,
+    borderRadius: 2,
+    background: color,
+    flexShrink: 0,
+  }),
+  groupLabel: {
+    fontSize: 13,
+    fontWeight: 700,
+    color: "var(--text-primary)",
+  } satisfies CSSProperties,
+  groupBlurb: {
+    fontSize: 12,
+    color: "var(--text-muted)",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  } satisfies CSSProperties,
+  groupCount: {
+    marginLeft: "auto",
+    fontSize: 12,
+    color: "var(--text-muted)",
+    flexShrink: 0,
+  } satisfies CSSProperties,
+  files: { display: "flex", flexDirection: "column", gap: 10 } satisfies CSSProperties,
+  emptyGroup: {
+    fontSize: 12.5,
+    color: "var(--text-muted)",
+    padding: "6px 2px",
+  } satisfies CSSProperties,
+  // Longhand only: mixing `border` with `borderLeft` makes React warn on rerender.
+  splitBanner: {
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--warn)",
+    borderRadius: 7,
+    background: "var(--warn-bg)",
+    padding: "12px 14px",
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+  } satisfies CSSProperties,
+  splitTitle: {
+    fontSize: 13,
+    fontWeight: 600,
+    color: "var(--warn)",
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+  } satisfies CSSProperties,
+  splitBody: { fontSize: 12.5, color: "var(--text-secondary)" } satisfies CSSProperties,
+  splitList: {
+    margin: 0,
+    paddingLeft: 18,
+    fontSize: 12.5,
+    color: "var(--text-secondary)",
+    display: "flex",
+    flexDirection: "column",
+    gap: 3,
+  } satisfies CSSProperties,
+  // ---- order toggle ----
+  toggle: {
+    display: "inline-flex",
+    padding: 2,
+    borderRadius: 6,
+    background: "var(--bg-hover)",
+    gap: 2,
+  } satisfies CSSProperties,
+  toggleBtn: (active: boolean): CSSProperties => ({
+    padding: "4px 10px",
+    borderRadius: 5,
+    border: "none",
+    fontSize: 12,
+    fontWeight: 600,
+    cursor: "pointer",
+    background: active ? "var(--bg-elevated)" : "transparent",
+    color: active ? "var(--text-primary)" : "var(--text-muted)",
+  }),
+} as const;

@@ -1,10 +1,12 @@
 /* FileCard — one collapsible file in the diff: header (path, +/- stat, comment
-   count) and, when open, its parsed lines plus any outdated comments. */
+   count, findings badge) and, when open, its parsed lines plus any outdated
+   comments. */
 "use client";
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { Icon } from "@devdigest/ui";
+import { Icon, SEV } from "@devdigest/ui";
+import type { FindingRecord } from "@devdigest/shared";
 import type { PrFile } from "@/lib/types";
 import { AUTO_EXPAND_MAX_LINES } from "../constants";
 import { parsePatch, type Line } from "../helpers";
@@ -15,6 +17,7 @@ import {
   type CommentThread,
   type DiffCommentApi,
 } from "../comments";
+import { anchorFindings, firstFindingLine, fs, worstSeverity } from "../findings";
 import { s, chevronFor } from "../styles";
 import { CodeLine } from "../CodeLine";
 import { OutdatedComments } from "../OutdatedComments";
@@ -30,12 +33,36 @@ function threadsForLine(ln: Line, matched: Map<string, CommentThread[]>): Commen
   return out;
 }
 
-export function FileCard({ file, commenting }: { file: PrFile; commenting?: DiffCommentApi }) {
+export interface FileCardProps {
+  file: PrFile;
+  commenting?: DiffCommentApi;
+  /** Review findings citing this file (Smart Diff only). */
+  findings?: FindingRecord[];
+  /** Overrides the size-based auto-expand — Smart Diff decides per role. */
+  defaultOpen?: boolean;
+  /**
+   * Scroll request from a findings badge. `nonce` is what makes re-clicking the
+   * same line fire again; without it React sees identical props and does nothing.
+   */
+  scrollTo?: { line: number; nonce: number } | null;
+  /** Asks the owner to scroll this file to `line` (badge click). */
+  onJumpToLine?: (line: number) => void;
+}
+
+export function FileCard({
+  file,
+  commenting,
+  findings,
+  defaultOpen,
+  scrollTo,
+  onJumpToLine,
+}: FileCardProps) {
   const t = useTranslations("shell");
   const [open, setOpen] = React.useState(
-    (file.additions ?? 0) + (file.deletions ?? 0) <= AUTO_EXPAND_MAX_LINES
+    defaultOpen ?? (file.additions ?? 0) + (file.deletions ?? 0) <= AUTO_EXPAND_MAX_LINES
   );
   const lines = React.useMemo(() => parsePatch(file.patch), [file.patch]);
+  const lineRefs = React.useRef(new Map<number, HTMLDivElement>());
 
   // Group this file's comments into threads, then split into ones we can anchor
   // to a rendered line vs. "outdated" (GitHub dropped the line / it's not here).
@@ -48,9 +75,28 @@ export function FileCard({ file, commenting }: { file: PrFile; commenting?: Diff
     return partitionThreads(fileThreads, renderedKeys);
   }, [comments, file.path, lines]);
 
+  const fileFindings = React.useMemo(() => findings ?? [], [findings]);
+  const { byLine } = React.useMemo(
+    () => anchorFindings(fileFindings, lines),
+    [fileFindings, lines]
+  );
+
+  // Open first, THEN scroll: a collapsed card has no lines mounted, so scrolling
+  // before the open commits would find no ref to scroll to.
+  React.useEffect(() => {
+    if (!scrollTo) return;
+    setOpen(true);
+  }, [scrollTo]);
+
+  React.useEffect(() => {
+    if (!scrollTo || !open) return;
+    lineRefs.current.get(scrollTo.line)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [scrollTo, open]);
+
   const commentCount = commenting
     ? commenting.comments.filter((c) => c.path === file.path).length
     : 0;
+  const worst = worstSeverity(fileFindings);
 
   return (
     <div style={s.fileCard}>
@@ -60,6 +106,27 @@ export function FileCard({ file, commenting }: { file: PrFile; commenting?: Diff
         <span className="mono" style={s.filePath}>
           {file.path}
         </span>
+        {worst && (
+          <span
+            aria-hidden
+            style={{ width: 6, height: 6, borderRadius: 99, background: SEV[worst].c, flexShrink: 0 }}
+          />
+        )}
+        {worst && (
+          <button
+            type="button"
+            style={fs.badge(worst)}
+            title={t("diffViewer.jumpToFinding")}
+            onClick={(e) => {
+              // The header toggles on click — a badge press must jump, not collapse.
+              e.stopPropagation();
+              const line = firstFindingLine(fileFindings);
+              if (line != null) onJumpToLine?.(line);
+            }}
+          >
+            {t("diffViewer.findingsCount", { count: fileFindings.length })}
+          </button>
+        )}
         <span className="mono tnum" style={s.fileStat}>
           <span style={s.addText}>+{file.additions}</span>{" "}
           <span style={s.delText}>−{file.deletions}</span>
@@ -81,10 +148,19 @@ export function FileCard({ file, commenting }: { file: PrFile; commenting?: Diff
             lines.map((ln, i) => (
               <CodeLine
                 key={i}
+                ref={
+                  ln.newNo != null
+                    ? (el) => {
+                        if (el) lineRefs.current.set(ln.newNo!, el);
+                        else lineRefs.current.delete(ln.newNo!);
+                      }
+                    : undefined
+                }
                 ln={ln}
                 path={file.path}
                 threads={threadsForLine(ln, matched)}
                 commenting={commenting}
+                findings={ln.newNo != null ? byLine.get(ln.newNo) : undefined}
               />
             ))
           )}
