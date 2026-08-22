@@ -1,4 +1,4 @@
-import type { ApiAgent, ApiConvention, ApiFinding, ApiReview } from './ports.js';
+import type { ApiAgent, ApiBlast, ApiConvention, ApiFinding, ApiReview } from './ports.js';
 
 /**
  * DOMAIN ring — pure token shaping. DTO in, concise MCP output out.
@@ -14,6 +14,12 @@ export const DEFAULT_MAX_FINDINGS = 20;
 
 /** Verbatim per the tool description: "Defaults to 30." */
 export const DEFAULT_MAX_CONVENTIONS = 30;
+
+/** Changed symbols listed in a blast map before the tail is summarised away. */
+export const MAX_BLAST_SYMBOLS = 10;
+
+/** Callers listed per symbol over MCP — well under the API's own per-symbol 20. */
+export const MAX_BLAST_CALLERS = 5;
 
 /** Most severe first. */
 const SEVERITY_RANK: Record<string, number> = {
@@ -214,4 +220,94 @@ export function shapeConventions(
       }
       return shaped;
     });
+}
+
+export interface ShapedBlastSymbol {
+  symbol: string;
+  file: string;
+  /** `path:line`, ready to open — the format the model already reads elsewhere. */
+  callers: string[];
+  caller_total: number;
+  endpoints?: string[];
+  crons?: string[];
+  /** Reached through another module — true, but much weaker evidence. */
+  endpoints_indirect?: string[];
+  crons_indirect?: string[];
+}
+
+export interface ShapedBlast {
+  index_status: 'full' | 'partial' | 'missing' | 'failed';
+  summary: string;
+  changed_symbols: number;
+  symbols: ShapedBlastSymbol[];
+  impacted_endpoints: string[];
+  impacted_crons: string[];
+  /** Present only when the map is not trustworthy on its own. */
+  caveat?: string;
+}
+
+/**
+ * Shape a blast map for a model.
+ *
+ * Two decisions worth stating. First, callers collapse to `path:line` strings
+ * rather than objects: the enclosing symbol name is a label, while the location
+ * is the thing an agent acts on, and one string costs a fraction of a
+ * three-field object across a wide fan-out.
+ *
+ * Second, `caveat`. A `partial` index and a `full` one can both return an empty
+ * map, and only one of those means "nothing is affected". The caveat spells the
+ * difference out in the payload instead of relying on the model to infer it
+ * from a status enum it has no prior for.
+ *
+ * Third, direct and indirect impact go in SEPARATE keys rather than one list.
+ * A 2-hop endpoint is reached through a module in between — via a barrel file
+ * that is every module in the repo — and a flat list invites the model to treat
+ * it as equal to an endpoint whose own file calls the changed symbol. The key
+ * name carries that distinction where a `depth: 2` field would not.
+ */
+export function shapeBlast(payload: ApiBlast): ShapedBlast {
+  const b = payload.blast;
+
+  const symbols: ShapedBlastSymbol[] = b.downstream
+    .slice()
+    .sort((x, y) => y.callers.length - x.callers.length)
+    .slice(0, MAX_BLAST_SYMBOLS)
+    .map((d) => {
+      const declaredIn = b.changed_symbols.find((c) => c.name === d.symbol);
+      const shaped: ShapedBlastSymbol = {
+        symbol: d.symbol,
+        file: declaredIn?.file ?? '',
+        callers: d.callers.slice(0, MAX_BLAST_CALLERS).map((c) => `${c.file}:${c.line}`),
+        caller_total: d.caller_total ?? d.callers.length,
+      };
+      const at = (list: typeof d.endpoints_affected, direct: boolean) =>
+        list.filter((e) => (direct ? e.depth <= 1 : e.depth > 1)).map((e) => e.endpoint);
+
+      const endpoints = at(d.endpoints_affected, true);
+      const crons = at(d.crons_affected, true);
+      const endpointsIndirect = at(d.endpoints_affected, false);
+      const cronsIndirect = at(d.crons_affected, false);
+
+      if (endpoints.length > 0) shaped.endpoints = endpoints;
+      if (crons.length > 0) shaped.crons = crons;
+      if (endpointsIndirect.length > 0) shaped.endpoints_indirect = endpointsIndirect;
+      if (cronsIndirect.length > 0) shaped.crons_indirect = cronsIndirect;
+      return shaped;
+    });
+
+  const shaped: ShapedBlast = {
+    index_status: b.index.status,
+    summary: b.summary,
+    changed_symbols: b.changed_symbols.length,
+    symbols,
+    impacted_endpoints: b.impacted_endpoints,
+    impacted_crons: b.impacted_crons,
+  };
+
+  if (b.index.status === 'partial' || b.index.status === 'failed') {
+    shaped.caveat =
+      'The repo index is incomplete, so callers or endpoints may be missing. ' +
+      'Treat an empty result as "not known", not as "nothing is affected".';
+  }
+  return shaped;
 }

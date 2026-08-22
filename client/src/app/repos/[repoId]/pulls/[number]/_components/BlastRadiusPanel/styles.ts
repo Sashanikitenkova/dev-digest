@@ -88,6 +88,21 @@ export const s = {
     whiteSpace: "nowrap",
   }),
 
+  /* Indirect (2-hop) impact reads as present-but-secondary, not as noise with
+     the same weight as a direct hit. */
+  chipDim: { opacity: 0.6, borderStyle: "dashed" } satisfies CSSProperties,
+
+  chipMore: {
+    fontSize: 11,
+    padding: "2px 8px",
+    borderRadius: 6,
+    border: "1px dashed var(--border)",
+    background: "transparent",
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  } satisfies CSSProperties,
+
   history: { borderTop: "1px solid var(--border)", paddingTop: 12 } satisfies CSSProperties,
 
   historyToggle: {
@@ -115,5 +130,101 @@ export const s = {
 
   historyItem: { fontSize: 12, color: "var(--text-secondary)" } satisfies CSSProperties,
   historyMeta: { fontSize: 11, color: "var(--text-muted)" } satisfies CSSProperties,
+  empty: { fontSize: 13, color: "var(--text-muted)" } satisfies CSSProperties,
+
+  /* Header row: stats on the left, the Tree/Graph switch pinned right. */
+  headRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    flexWrap: "wrap",
+  } satisfies CSSProperties,
+
+  toggle: {
+    marginLeft: "auto",
+    display: "inline-flex",
+    border: "1px solid var(--border)",
+    borderRadius: 6,
+    overflow: "hidden",
+  } satisfies CSSProperties,
+
+  toggleBtn: (active: boolean): CSSProperties => ({
+    padding: "3px 12px",
+    fontSize: 12,
+    border: "none",
+    cursor: "pointer",
+    background: active ? "var(--bg-subtle, rgba(255,255,255,0.08))" : "transparent",
+    color: active ? "var(--text-primary)" : "var(--text-muted)",
+    fontWeight: active ? 600 : 400,
+  }),
+
+  /* Sits ABOVE the tree, never instead of it: a partial index still produced
+     real results, and hiding them would trade one wrong claim for another. */
+  banner: (color: string): CSSProperties => ({
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+    padding: "10px 12px",
+    borderRadius: 6,
+    border: `1px solid color-mix(in srgb, ${color} 35%, transparent)`,
+    background: `color-mix(in srgb, ${color} 10%, transparent)`,
+    fontSize: 12,
+  }),
+
+  bannerHead: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    color: "var(--text-primary)",
+    fontWeight: 600,
+  } satisfies CSSProperties,
+
+  bannerBody: { color: "var(--text-secondary)", lineHeight: 1.5 } satisfies CSSProperties,
+  bannerMeta: { color: "var(--text-muted)", fontSize: 11 } satisfies CSSProperties,
+
+  bannerCta: {
+    alignSelf: "flex-start",
+    marginTop: 2,
+    padding: 0,
+    background: "none",
+    border: "none",
+    cursor: "pointer",
+    fontSize: 12,
+    color: "var(--accent-text, #6ea8fe)",
+    textDecoration: "underline",
+    textUnderlineOffset: 2,
+  } satisfies CSSProperties,
+} as const;
+
+/** Graph-view styles, kept separate so the tree's names stay short. */
+export const g = {
+  scroll: { overflowX: "auto", paddingTop: 4 } satisfies CSSProperties,
+  svg: { display: "block", minWidth: "100%" } satisfies CSSProperties,
+
+  nodeText: {
+    fontSize: 11,
+    fontFamily: "var(--font-mono, ui-monospace, monospace)",
+    fill: "var(--text-secondary)",
+  } satisfies CSSProperties,
+
+  legend: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 14,
+    marginTop: 10,
+    fontSize: 11,
+    color: "var(--text-muted)",
+  } satisfies CSSProperties,
+
+  legendItem: { display: "inline-flex", alignItems: "center", gap: 5 } satisfies CSSProperties,
+
+  dot: (color: string): CSSProperties => ({
+    width: 7,
+    height: 7,
+    borderRadius: "50%",
+    background: color,
+    display: "inline-block",
+  }),
+
   empty: { fontSize: 13, color: "var(--text-muted)" } satisfies CSSProperties,
 } as const;

@@ -19,6 +19,6 @@ export default async function blastRoutes(appBase: FastifyInstance) {
 
   app.get('/pulls/:id/blast', { schema: { params: IdParams } }, async (req): Promise<PrBlast> => {
     const { workspaceId } = await getContext(app.container, req);
-    return service.getForPull(workspaceId, req.params.id);
+    return service.getForPull(workspaceId, req.params.id, (obj, msg) => req.log.debug(obj, msg));
   });
 }

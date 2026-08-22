@@ -1,5 +1,6 @@
 import type {
   ApiAgent,
+  ApiBlast,
   ApiConvention,
   ApiFinding,
   ApiPrMeta,
@@ -30,6 +31,8 @@ export interface StubOptions {
   reviews?: Record<string, ApiReview[]>;
   /** Keyed by repo id. */
   conventions?: Record<string, ApiConvention[]>;
+  /** Keyed by pull id. */
+  blast?: Record<string, ApiBlast>;
   /**
    * Successive responses for `listRuns`. The last entry repeats forever, so a
    * polling test can express "running, running, done" as three entries.
@@ -50,6 +53,7 @@ export class StubApi implements DevDigestApi {
     listRuns: 0,
     listReviews: 0,
     listConventions: 0,
+    getBlast: 0,
   };
 
   readonly startReviewArgs: Array<{ pullId: string; agentId: string }> = [];
@@ -102,6 +106,26 @@ export class StubApi implements DevDigestApi {
     this.calls.listConventions += 1;
     return this.options.conventions?.[repoId] ?? [];
   }
+
+  async getBlast(pullId: string): Promise<ApiBlast> {
+    this.calls.getBlast += 1;
+    return this.options.blast?.[pullId] ?? blast();
+  }
+}
+
+/** A blast payload with sensible defaults; override only what a test asserts. */
+export function blast(over: Partial<ApiBlast['blast']> = {}): ApiBlast {
+  return {
+    blast: {
+      index: { status: 'full', reason: null, files_indexed: 120 },
+      changed_symbols: [],
+      downstream: [],
+      impacted_endpoints: [],
+      impacted_crons: [],
+      summary: 'No indexed symbols changed in this PR.',
+      ...over,
+    },
+  };
 }
 
 export function stubContext(options: StubOptions = {}): ToolContext & { api: StubApi } {

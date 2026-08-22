@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  BLAST_RADIUS_STUB_MESSAGE,
   NO_CONVENTIONS_MESSAGE,
   STILL_RUNNING_MESSAGE,
 } from '../src/errors.js';
@@ -10,7 +9,17 @@ import { getConventions } from '../src/tools/get-conventions.js';
 import { getFindings } from '../src/tools/get-findings.js';
 import { listAgents } from '../src/tools/list-agents.js';
 import { DEFAULT_TIMEOUT_MS, runAgentOnPr } from '../src/tools/run-agent-on-pr.js';
-import { agent, convention, finding, pull, repo, review, run, stubContext } from './stub-api.js';
+import {
+  agent,
+  blast,
+  convention,
+  finding,
+  pull,
+  repo,
+  review,
+  run,
+  stubContext,
+} from './stub-api.js';
 
 /**
  * APPLICATION ring — every tool end-to-end over the stub port.
@@ -126,30 +135,94 @@ describe('get_conventions', () => {
   });
 });
 
-// ---- get_blast_radius (stub) ---------------------------------------------
+// ---- get_blast_radius -----------------------------------------------------
 
 describe('get_blast_radius', () => {
-  it('returns the not-implemented payload and never throws', () => {
-    const result = getBlastRadius({ repo: 'acme/payments-api', pr: 482 });
+  const withBlast = (over: Parameters<typeof blast>[0]) =>
+    happyContext({ blast: { [PULL_ID]: blast(over) } });
+
+  it('shapes the impact map, collapsing callers to path:line', async () => {
+    const ctx = withBlast({
+      changed_symbols: [{ name: 'rateLimit', file: 'src/api/rateLimit.ts', kind: 'function' }],
+      downstream: [
+        {
+          symbol: 'rateLimit',
+          callers: [
+            { name: 'handler', file: 'src/api/public/index.ts', line: 23 },
+            { name: 'boot', file: 'src/server.ts', line: 88 },
+          ],
+          caller_total: 2,
+          endpoints_affected: [
+            { endpoint: 'GET /api/public/items', depth: 1 },
+            { endpoint: 'GET /health', depth: 2 },
+          ],
+          crons_affected: [],
+        },
+      ],
+      impacted_endpoints: ['GET /api/public/items'],
+      summary: '1 changed symbol, 2 callers, 1 impacted endpoint.',
+    });
+
+    const result = await getBlastRadius(ctx, { repo: 'acme/payments-api', pr: 482 });
+
     expect(result.isError).toBeUndefined();
-    expect(structured(result)).toEqual({
-      implemented: false,
-      message: BLAST_RADIUS_STUB_MESSAGE,
+    expect(structured(result)).toMatchObject({
+      status: 'ok',
+      index_status: 'full',
+      changed_symbols: 1,
+      symbols: [
+        {
+          symbol: 'rateLimit',
+          file: 'src/api/rateLimit.ts',
+          callers: ['src/api/public/index.ts:23', 'src/server.ts:88'],
+          caller_total: 2,
+          // Separate keys, not one list: a 2-hop endpoint is reached through a
+          // module in between, and the model must not weigh it as a direct hit.
+          endpoints: ['GET /api/public/items'],
+          endpoints_indirect: ['GET /health'],
+        },
+      ],
     });
   });
 
-  it('is isError: false — "not implemented" is a known state, not a model mistake', () => {
-    expect(getBlastRadius({ repo: 'x/y', pr: 1 }).isError).toBeUndefined();
+  it('reports an unindexed repo as not_indexed, never as an empty map', async () => {
+    const ctx = withBlast({ index: { status: 'missing', reason: 'no_data', files_indexed: 0 } });
+
+    const result = await getBlastRadius(ctx, { repo: 'acme/payments-api', pr: 482 });
+
+    // The distinction the whole tool rests on: absence of evidence is not
+    // evidence of absence, and a model told "no impact" would act on it.
+    expect(structured(result).status).toBe('not_indexed');
+    expect(structured(result).symbols).toBeUndefined();
   });
 
-  it('makes zero API calls — it would spend a slow PR sync for a fixed message', () => {
+  it('is isError: false for an unindexed repo — a known state, not a mistake', async () => {
+    const ctx = withBlast({ index: { status: 'missing', reason: null, files_indexed: 0 } });
+    expect((await getBlastRadius(ctx, { repo: 'acme/payments-api', pr: 482 })).isError)
+      .toBeUndefined();
+  });
+
+  it('caveats a partial index in the payload rather than leaving it inferable', async () => {
+    const ctx = withBlast({ index: { status: 'partial', reason: 'soft_budget', files_indexed: 9 } });
+
+    const shaped = structured(await getBlastRadius(ctx, { repo: 'acme/payments-api', pr: 482 }));
+
+    expect(shaped.index_status).toBe('partial');
+    expect(String(shaped.caveat)).toMatch(/not known/);
+  });
+
+  it('omits the caveat when the index is complete', async () => {
+    const shaped = structured(
+      await getBlastRadius(withBlast({}), { repo: 'acme/payments-api', pr: 482 }),
+    );
+    expect(shaped.caveat).toBeUndefined();
+  });
+
+  it('surfaces an unknown repository as a correctable error', async () => {
     const ctx = happyContext();
-    getBlastRadius({ repo: 'acme/payments-api', pr: 482 });
-    expect(Object.values(ctx.api.calls).every((n) => n === 0)).toBe(true);
-  });
-
-  it('does not throw even for a repository that does not exist', () => {
-    expect(() => getBlastRadius({ repo: 'nope/nope', pr: 0 })).not.toThrow();
+    await expect(getBlastRadius(ctx, { repo: 'nope/nope', pr: 1 })).rejects.toThrow(
+      /is not imported into DevDigest/,
+    );
   });
 });
 

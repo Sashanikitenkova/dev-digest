@@ -103,9 +103,14 @@ export function agentAmbiguous(query: string, matches: readonly string[]): strin
 export const NO_CONVENTIONS_MESSAGE =
   'No conventions have been extracted for this repository yet. Run the conventions extractor from the DevDigest UI, or POST /repos/{id}/conventions/extract.';
 
-/** Verbatim from the plan — the `get_blast_radius` stub payload. */
-export const BLAST_RADIUS_STUB_MESSAGE =
-  'Blast radius is not wired up yet. The backend already implements it at GET /pulls/{id}/blast, which returns changed_symbols, downstream callers, impacted_endpoints, impacted_crons and prior-PR history.';
+/**
+ * The repo has never been indexed, so there is nothing to compute a blast
+ * radius from. Says "not indexed" rather than "no impact" on purpose: an empty
+ * map from an unindexed repo is the absence of evidence, and a model told
+ * "nothing is affected" would act on it.
+ */
+export const BLAST_NOT_INDEXED_MESSAGE =
+  'This repository has not been indexed yet, so the blast radius is unknown (not empty). Index it from the DevDigest UI, or POST /repos/{id}/resync, then call this tool again.';
 
 /** `get_findings` found no completed review — a healthy state, not a failure. */
 export function noReviewYet(fullName: string, number: number, agent?: string): string {

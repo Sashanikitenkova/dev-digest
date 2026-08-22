@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   ApiAgent,
+  ApiBlast,
   ApiConvention,
   ApiPrMeta,
   ApiRepo,
@@ -79,6 +80,10 @@ export class HttpDevDigestApi implements DevDigestApi {
       `/repos/${encodeURIComponent(repoId)}/conventions`,
       z.array(ApiConvention),
     );
+  }
+
+  getBlast(pullId: string): Promise<z.infer<typeof ApiBlast>> {
+    return this.#request('GET', `/pulls/${encodeURIComponent(pullId)}/blast`, ApiBlast);
   }
 
   async #request<T>(

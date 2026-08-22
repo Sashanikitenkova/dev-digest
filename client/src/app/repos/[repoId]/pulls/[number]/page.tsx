@@ -149,6 +149,8 @@ export default function PRDetailPage() {
         {tab === "overview" && (
           <OverviewTab
             prId={prId}
+            repoId={repoId}
+            repoFullName={repoFullName}
             headSha={pr.head_sha}
             prBody={pr.body}
             reviews={runs}

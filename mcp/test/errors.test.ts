@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BLAST_NOT_INDEXED_MESSAGE,
   agentAmbiguous,
   agentNotFound,
   apiErrorResponse,
   apiUnexpectedShape,
   apiUnreachable,
-  BLAST_RADIUS_STUB_MESSAGE,
   DevDigestToolError,
   NO_CONVENTIONS_MESSAGE,
   noReviewYet,
@@ -93,9 +93,9 @@ describe('operational messages', () => {
     );
   });
 
-  it('points the blast-radius homework at the endpoint that already works', () => {
-    expect(BLAST_RADIUS_STUB_MESSAGE).toBe(
-      'Blast radius is not wired up yet. The backend already implements it at GET /pulls/{id}/blast, which returns changed_symbols, downstream callers, impacted_endpoints, impacted_crons and prior-PR history.',
+  it('tells the agent an unindexed repo is unknown, not unaffected', () => {
+    expect(BLAST_NOT_INDEXED_MESSAGE).toBe(
+      'This repository has not been indexed yet, so the blast radius is unknown (not empty). Index it from the DevDigest UI, or POST /repos/{id}/resync, then call this tool again.',
     );
   });
 

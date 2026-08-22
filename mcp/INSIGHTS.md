@@ -83,6 +83,18 @@ _Nothing recorded yet._
   happened here: a working setup was reported as unavailable and several
   exchanges went to a bug hunt with no bug.
 
+### 2026-08-20 — [Decision] `get_blast_radius` reports `not_indexed` as a distinct status, not an empty map
+
+An unindexed repo and a repo whose changed files genuinely reach nothing both
+produce an empty blast map, and only one of them means "nothing is affected". The
+tool branches on `blast.index.status === 'missing'` and returns
+`{ status: 'not_indexed', message }` with `isError: false`; for a `partial` or
+`failed` index it returns the map plus an explicit `caveat` string rather than
+leaving the model to infer significance from a status enum it has no prior for.
+Wiring the tool cost 45 tokens (110 → 155) and left the suite at 1373/1600.
+Evidence: `mcp/src/tools/get-blast-radius.ts:29-38`, `mcp/src/shape.ts`.
+
+
 ## Recurring Errors & Fixes
 
 _Nothing recorded yet._

@@ -186,22 +186,20 @@ export function createServer(ctx: ToolContext): McpServer {
     (args) => guard('get_conventions', () => getConventions(ctx, args)),
   );
 
-  // ---- 5. get_blast_radius (STUB) -----------------------------------------
-  // "Not implemented yet." are the FIRST TWO WORDS on purpose: the model reads
-  // descriptions top-down when selecting, so front-loading the disqualifier is
-  // what stops it selecting a dead tool and wasting a turn.
-  //
-  // Declares NO outputSchema — a stub returning a fixed message does not need
-  // one, and that is one of the two free budget savings the plan identified.
+  // ---- 5. get_blast_radius ------------------------------------------------
+  // Still declares NO outputSchema. The shaped payload is small and mostly
+  // free-form strings, while an outputSchema compiles to JSON Schema and costs
+  // 150-250 tokens on EVERY turn — more than the tool's own description. The
+  // description carries the selection signal instead.
   server.registerTool(
     'get_blast_radius',
     {
       description:
-        "Not implemented yet. Will return a pull request's impact map: changed symbols, downstream callers, and affected endpoints.",
+        "Returns a pull request's impact map from the repo index: the symbols it changed, which files call them, and the HTTP endpoints and cron jobs downstream. Use it to answer what else a change could affect.",
       inputSchema: z.object({ repo: RepoArg, pr: PrArg }),
       annotations: { readOnlyHint: true },
     },
-    (args) => guard('get_blast_radius', async () => getBlastRadius(args)),
+    (args) => guard('get_blast_radius', () => getBlastRadius(ctx, args)),
   );
 
   return server;

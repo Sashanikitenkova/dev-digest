@@ -7,17 +7,39 @@
     "crons": "cron/jobs"
   },
   "view": {
-    "tree": "tree",
-    "graph": "graph"
+    "tree": "Tree",
+    "graph": "Graph",
+    "label": "Blast radius view"
   },
   "callerCount": "{count} callers",
+  "callerCountOf": "{shown} of {total} callers",
   "noDownstream": "{count} changed symbol(s), no downstream callers found.",
   "empty": {
     "title": "Nothing indexed for these files",
-    "body": "No changed symbols were resolved for this PR. The repo may still be indexing, or these files aren't part of the index."
+    "body": "No changed symbols were resolved for this PR. The repo may still be indexing, or these files aren't part of the index.",
+    "cta": "Index this repo"
+  },
+  "partial": {
+    "title": "Partial index — this map may be incomplete",
+    "body": "The indexer finished early, so some callers and endpoints may be missing. What is shown below is real; what is absent is not proof of nothing.",
+    "failedTitle": "Index failed — this map may be incomplete",
+    "failedBody": "The last indexing run did not complete. Re-index to get a full picture.",
+    "reason": "Reason: {reason}",
+    "files": "{count} files indexed",
+    "cta": "Re-index"
   },
   "graph": {
     "empty": "No downstream callers to graph.",
-    "ariaLabel": "Blast radius graph"
+    "ariaLabel": "Blast radius graph",
+    "legend": {
+      "symbol": "changed symbol",
+      "callers": "callers",
+      "endpoints": "endpoints affected"
+    },
+    "more": "+{count} more"
+  },
+  "chip": {
+    "indirect": "+{count} indirect",
+    "indirectHint": "Reached through another module — weaker evidence."
   }
 }

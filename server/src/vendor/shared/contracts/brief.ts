@@ -75,15 +75,56 @@ export const BlastCaller = z.object({
 });
 export type BlastCaller = z.infer<typeof BlastCaller>;
 
+/**
+ * An endpoint or cron the change can reach, with how far away it is.
+ *
+ * The depth is not decoration. Attribution at two hops is TRUE but weak: in any
+ * repo with a barrel or registry file, every module reaches the app root in two
+ * hops, so a flat list drifts toward "every change affects every endpoint".
+ * Carrying the distance lets the reader rank instead of forcing the server to
+ * either discard real edges or drown the useful ones.
+ */
+export const AffectedEndpoint = z.object({
+  endpoint: z.string(),
+  /** 1 = a direct caller or direct importer declares it; 2 = one hop further. */
+  depth: z.number().int(),
+});
+export type AffectedEndpoint = z.infer<typeof AffectedEndpoint>;
+
 export const DownstreamImpact = z.object({
   symbol: z.string(),
   callers: z.array(BlastCaller),
-  endpoints_affected: z.array(z.string()),
-  crons_affected: z.array(z.string()),
+  /**
+   * Callers found BEFORE the per-symbol display cap. Lets the UI say
+   * "showing 20 of 43" instead of presenting a truncated list as the whole set.
+   */
+  caller_total: z.number().int().default(0),
+  endpoints_affected: z.array(AffectedEndpoint),
+  crons_affected: z.array(AffectedEndpoint),
 });
 export type DownstreamImpact = z.infer<typeof DownstreamImpact>;
 
+/**
+ * State of the repo index the map was read from. Structured, not prose, because
+ * "we found nothing" and "we never finished looking" are different claims and
+ * the UI has to render them differently. `missing` = never indexed; `partial` =
+ * a working index that skipped some work (see pipeline soft budget); `failed` =
+ * the indexer errored.
+ */
+export const BlastIndexStatus = z.enum(['full', 'partial', 'missing', 'failed']);
+export type BlastIndexStatus = z.infer<typeof BlastIndexStatus>;
+
+export const BlastIndexInfo = z.object({
+  status: BlastIndexStatus,
+  reason: z.string().nullable().default(null),
+  files_indexed: z.number().int().default(0),
+  last_indexed_sha: z.string().default(''),
+  updated_at: z.string().default(''),
+});
+export type BlastIndexInfo = z.infer<typeof BlastIndexInfo>;
+
 export const BlastRadius = z.object({
+  index: BlastIndexInfo,
   changed_symbols: z.array(ChangedSymbol),
   downstream: z.array(DownstreamImpact),
   /**

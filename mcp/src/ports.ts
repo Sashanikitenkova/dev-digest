@@ -112,6 +112,48 @@ export const ApiConvention = z.object({
 export type ApiConvention = z.infer<typeof ApiConvention>;
 
 /**
+ * `GET /pulls/:id/blast` — subset of `contracts/brief.ts` `BlastRadius`.
+ *
+ * Only the fields `shapeBlast` actually renders are declared. `index` is the
+ * one that changes what the model is allowed to conclude: an empty map from a
+ * `missing` index means "not indexed", not "nothing is affected", and the tool
+ * must never let those collapse into the same answer.
+ */
+const AffectedEndpoint = z.object({
+  endpoint: z.string(),
+  /** 1 = a direct caller/importer declares it; 2 = one import hop further out. */
+  depth: z.number().int(),
+});
+
+export const ApiBlast = z.object({
+  blast: z.object({
+    index: z.object({
+      status: z.enum(['full', 'partial', 'missing', 'failed']),
+      reason: z.string().nullish(),
+      files_indexed: z.number().int().nullish(),
+    }),
+    changed_symbols: z.array(
+      z.object({ name: z.string(), file: z.string(), kind: z.string() }),
+    ),
+    downstream: z.array(
+      z.object({
+        symbol: z.string(),
+        callers: z.array(
+          z.object({ name: z.string(), file: z.string(), line: z.number().int() }),
+        ),
+        caller_total: z.number().int().nullish(),
+        endpoints_affected: z.array(AffectedEndpoint),
+        crons_affected: z.array(AffectedEndpoint),
+      }),
+    ),
+    impacted_endpoints: z.array(z.string()),
+    impacted_crons: z.array(z.string()),
+    summary: z.string(),
+  }),
+});
+export type ApiBlast = z.infer<typeof ApiBlast>;
+
+/**
  * The single port for the whole DevDigest HTTP API.
  *
  * One port, not one per resource: the onion skill's own caveat is not to
@@ -128,6 +170,7 @@ export interface DevDigestApi {
   listRuns(pullId: string): Promise<ApiRunSummary[]>;
   listReviews(pullId: string): Promise<ApiReview[]>;
   listConventions(repoId: string): Promise<ApiConvention[]>;
+  getBlast(pullId: string): Promise<ApiBlast>;
 }
 
 /**

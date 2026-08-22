@@ -73,6 +73,24 @@ d('Blast route (Testcontainers pg)', () => {
     await pg?.stop();
   });
 
+  /**
+   * `codeIndex` is wired to a port that THROWS on every method. The route is
+   * supposed to answer purely from the index tables, so any clone-parsing
+   * regression fails the whole suite loudly instead of quietly making the
+   * endpoint slow and non-deterministic.
+   */
+  const explodingCodeIndex = {
+    grep: async () => {
+      throw new Error('blast must not grep the clone');
+    },
+    symbols: async () => {
+      throw new Error('blast must not re-parse the clone');
+    },
+    references: async () => {
+      throw new Error('blast must not re-parse the clone');
+    },
+  };
+
   function appWith() {
     return buildApp({
       config: config(),
@@ -81,8 +99,58 @@ d('Blast route (Testcontainers pg)', () => {
         embedder: new MockEmbedder(),
         github: new MockGitHubClient(),
         git: new MockGitClient({ diff: '' }),
+        codeIndex: explodingCodeIndex as never,
       },
     });
+  }
+
+  /** Index a repo at the given completeness, with one symbol and one caller. */
+  async function indexRepo(
+    repoId: string,
+    status: 'full' | 'partial',
+    opts: { rank?: boolean } = {},
+  ) {
+    const db = pg.handle.db;
+    await db.insert(t.repoIndexState).values({
+      repoId,
+      lastIndexedSha: 'idx-sha',
+      indexerVersion: 2,
+      status,
+      filesIndexed: 7,
+    });
+    await db.insert(t.symbols).values({
+      repoId,
+      path: 'src/api/rateLimit.ts',
+      name: 'rateLimit',
+      kind: 'function',
+      line: 4,
+    });
+    await db.insert(t.references).values({
+      repoId,
+      fromPath: 'src/server.ts',
+      toSymbol: 'rateLimit',
+      line: 88,
+      declFile: 'src/api/rateLimit.ts',
+    });
+    await db
+      .insert(t.fileEdges)
+      .values({ repoId, fromFile: 'src/server.ts', toFile: 'src/api/rateLimit.ts' });
+    await db.insert(t.fileFacts).values({
+      repoId,
+      filePath: 'src/server.ts',
+      endpoints: ['GET /api/public/items'],
+      crons: [],
+    });
+    if (opts.rank !== false) {
+      await db.insert(t.fileRank).values({
+        repoId,
+        filePath: 'src/server.ts',
+        pagerank: 0.5,
+        hotness: 0,
+        rank: 0.5,
+        percentile: 90,
+      });
+    }
   }
 
   it('answers 200 with an empty radius for an unindexed repo', async () => {
@@ -130,6 +198,71 @@ d('Blast route (Testcontainers pg)', () => {
 
     const res = await app.inject({ method: 'GET', url: `/pulls/${pr.id}/blast` });
     expect(res.json().history).toEqual([]);
+  });
+
+  it('reports a never-indexed repo as `missing`, not as an empty result', async () => {
+    const app = await appWith();
+    const repo = await setupRepo(pg.handle.db, workspaceId);
+    const pr = await setupPr(pg.handle.db, workspaceId, repo.id, 10, ['src/api/rateLimit.ts']);
+
+    const body = (await app.inject({ method: 'GET', url: `/pulls/${pr.id}/blast` })).json();
+
+    // The distinction the whole panel rests on: nothing KNOWN, not nothing HIT.
+    expect(body.blast.index.status).toBe('missing');
+    expect(body.blast.changed_symbols).toEqual([]);
+  });
+
+  it('serves symbols, callers and endpoints from the index alone', async () => {
+    const app = await appWith();
+    const repo = await setupRepo(pg.handle.db, workspaceId);
+    await indexRepo(repo.id, 'full');
+    const pr = await setupPr(pg.handle.db, workspaceId, repo.id, 11, ['src/api/rateLimit.ts']);
+
+    const res = await app.inject({ method: 'GET', url: `/pulls/${pr.id}/blast` });
+
+    // A 500 here means something reached for the (exploding) clone port.
+    expect(res.statusCode).toBe(200);
+    const { blast } = res.json();
+    expect(blast.index.status).toBe('full');
+    expect(blast.changed_symbols).toEqual([
+      { name: 'rateLimit', file: 'src/api/rateLimit.ts', kind: 'function' },
+    ]);
+    const impact = blast.downstream.find((d: { symbol: string }) => d.symbol === 'rateLimit');
+    // No symbol row covers line 88 in server.ts, so the caller falls back to
+    // the file's basename — the existing labelling rule, not a blast concern.
+    expect(impact.callers).toEqual([{ name: 'server.ts', file: 'src/server.ts', line: 88 }]);
+    expect(impact.caller_total).toBe(1);
+    expect(impact.endpoints_affected).toEqual([
+      { endpoint: 'GET /api/public/items', depth: 1 },
+    ]);
+  });
+
+  it('flags a partial index while still serving its results', async () => {
+    const app = await appWith();
+    const repo = await setupRepo(pg.handle.db, workspaceId);
+    await indexRepo(repo.id, 'partial');
+    const pr = await setupPr(pg.handle.db, workspaceId, repo.id, 12, ['src/api/rateLimit.ts']);
+
+    const { blast } = (await app.inject({ method: 'GET', url: `/pulls/${pr.id}/blast` })).json();
+
+    expect(blast.index.status).toBe('partial');
+    // Caveated, never swallowed.
+    expect(blast.changed_symbols).toHaveLength(1);
+    expect(blast.downstream[0].callers).toHaveLength(1);
+  });
+
+  it('still lists callers when a partial index never wrote file_rank', async () => {
+    const app = await appWith();
+    const repo = await setupRepo(pg.handle.db, workspaceId);
+    await indexRepo(repo.id, 'partial', { rank: false });
+    const pr = await setupPr(pg.handle.db, workspaceId, repo.id, 13, ['src/api/rateLimit.ts']);
+
+    const { blast } = (await app.inject({ method: 'GET', url: `/pulls/${pr.id}/blast` })).json();
+
+    // An inner join on file_rank used to drop every caller here, so the panel
+    // claimed "no downstream callers" about code that plainly has one.
+    expect(blast.downstream[0].callers).toHaveLength(1);
+    expect(blast.index.status).toBe('partial');
   });
 
   it('does not leak a PR from another workspace', async () => {

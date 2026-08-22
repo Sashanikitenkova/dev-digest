@@ -130,6 +130,15 @@ export interface ResolvedCallerRow {
   rank: number;
 }
 
+/**
+ * One file reached by walking the import graph BACKWARDS from a changed file:
+ * `path` imports (transitively) the changed file `fromFile`, `depth` hops away.
+ */
+export interface ImporterRow {
+  fromFile: string;
+  depth: number;
+}
+
 export class RepoIntelRepository {
   constructor(private db: Db) {}
 
@@ -499,7 +508,16 @@ export class RepoIntelRepository {
       .where(and(eq(t.symbols.repoId, repoId), inArray(t.symbols.path, paths)));
   }
 
-  /** Resolved cross-file callers of symbols declared in `declFiles`. */
+  /**
+   * Resolved cross-file callers of symbols declared in `declFiles`.
+   *
+   * `file_rank` is LEFT-joined, not inner-joined. A `partial` index that tripped
+   * the soft budget writes symbols and references but skips the whole T3 block
+   * (edges + rank + facts, `pipeline/full.ts`), so an inner join silently drops
+   * EVERY caller and the blast panel reports "no downstream callers" — a false
+   * claim about the code dressed up as a fact about the index. Rank 0 is the
+   * same value the old ripgrep path used, and the rank sort tolerates it.
+   */
   async getResolvedCallers(
     repoId: string,
     declFiles: string[],
@@ -511,10 +529,10 @@ export class RepoIntelRepository {
         fromPath: t.references.fromPath,
         toSymbol: t.references.toSymbol,
         line: t.references.line,
-        rank: t.fileRank.rank,
+        rank: sql<number>`coalesce(${t.fileRank.rank}, 0)`,
       })
       .from(t.references)
-      .innerJoin(
+      .leftJoin(
         t.fileRank,
         and(
           eq(t.fileRank.repoId, t.references.repoId),
@@ -528,6 +546,64 @@ export class RepoIntelRepository {
           inArray(t.references.toSymbol, names),
         ),
       );
+  }
+
+  /**
+   * Walk the import graph BACKWARDS: which files depend on `files`?
+   *
+   * This is what `file_edges_repo_to_idx` on `(repo_id, to_file)` was created
+   * for — the forward direction (`getEdges`) answers "what does this file
+   * import", which is the opposite of what a blast radius needs.
+   *
+   * One indexed query per hop, breadth-first, `depth` hops maximum. Each file is
+   * recorded once, at the SHALLOWEST hop that reached it, against the changed
+   * file it was reached from — so a consumer can attribute an endpoint declared
+   * in a reached file back to the changed file it depends on.
+   *
+   * Seed files are never included in the result (a changed file does not
+   * "depend on itself"), and already-visited files are never re-expanded, so a
+   * cyclic import graph terminates.
+   */
+  async getImporters(
+    repoId: string,
+    files: string[],
+    depth: number,
+  ): Promise<Map<string, ImporterRow>> {
+    const reached = new Map<string, ImporterRow>();
+    if (files.length === 0 || depth < 1) return reached;
+
+    const seeds = new Set(files);
+    // Which changed file each frontier entry traces back to.
+    let frontier = new Map<string, string>(files.map((f) => [f, f]));
+
+    for (let hop = 1; hop <= depth && frontier.size > 0; hop++) {
+      const targets = [...frontier.keys()];
+      const rows: { fromFile: string; toFile: string }[] = [];
+      // Chunked: a hot file can be imported by thousands of others, and an
+      // unbounded inArray list becomes an unbounded bind-parameter list.
+      for (let i = 0; i < targets.length; i += INSERT_CHUNK_SIZE) {
+        const slice = targets.slice(i, i + INSERT_CHUNK_SIZE);
+        const batch = await this.db
+          .select({ fromFile: t.fileEdges.fromFile, toFile: t.fileEdges.toFile })
+          .from(t.fileEdges)
+          .where(and(eq(t.fileEdges.repoId, repoId), inArray(t.fileEdges.toFile, slice)));
+        rows.push(...batch);
+      }
+
+      const next = new Map<string, string>();
+      for (const row of rows) {
+        // An importer that IS a changed file, or that we already reached at a
+        // shallower hop, is not news.
+        if (seeds.has(row.fromFile) || reached.has(row.fromFile)) continue;
+        const origin = frontier.get(row.toFile);
+        if (!origin) continue;
+        reached.set(row.fromFile, { fromFile: origin, depth: hop });
+        next.set(row.fromFile, origin);
+      }
+      frontier = next;
+    }
+
+    return reached;
   }
 
   /** Per-file facts (endpoints/crons) for the given files. */

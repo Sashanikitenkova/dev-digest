@@ -10,6 +10,9 @@ import { s } from "./styles";
 
 interface OverviewTabProps {
   prId: string | null;
+  repoId: string;
+  /** "owner/repo" — lets Blast Radius deep-link a caller's file:line to GitHub. */
+  repoFullName: string | null;
   headSha: string | null | undefined;
   prBody: string | null | undefined;
   reviews: ReviewRecord[];
@@ -21,14 +24,27 @@ interface OverviewTabProps {
  * Intent lets the reader check the system understood the task before they weigh
  * what it said about the code, and only then comes the author's own description.
  */
-export function OverviewTab({ prId, headSha, prBody, reviews, runs }: OverviewTabProps) {
+export function OverviewTab({
+  prId,
+  repoId,
+  repoFullName,
+  headSha,
+  prBody,
+  reviews,
+  runs,
+}: OverviewTabProps) {
   return (
     <>
       <PrBriefHeader reviews={reviews} runs={runs} />
 
       <div style={s.grid}>
         <IntentCard prId={prId} headSha={headSha} />
-        <BlastRadiusPanel prId={prId} />
+        <BlastRadiusPanel
+          prId={prId}
+          repoId={repoId}
+          repoFullName={repoFullName}
+          headSha={headSha}
+        />
       </div>
 
       {prBody && (
