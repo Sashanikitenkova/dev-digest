@@ -32,6 +32,38 @@ describe('assemblePrompt — shared injection guard (server + CI)', () => {
   });
 });
 
+describe('assemblePrompt — output language', () => {
+  const sys = systemOf({ system: 'AGENT-SYS', diff: 'DIFF' });
+
+  it('pins the reviewer’s free-text output to English', () => {
+    // Regression guard for the class of bug recorded in server/INSIGHTS.md
+    // (2026-08-12): a model answering in its own language because no prompt
+    // rule pinned one. Fixed in the PROMPT so it survives a model swap.
+    expect(sys).toMatch(/OUTPUT LANGUAGE/);
+    expect(sys).toMatch(/in ENGLISH/);
+    expect(sys).toMatch(/summary/i);
+    expect(sys).toMatch(/title, rationale and suggestion/i);
+  });
+
+  it('still applies when the diff is in another language', () => {
+    // The rule is unconditional — it must not be phrased as advice that an
+    // untrusted diff could argue its way out of.
+    expect(sys).toMatch(/even when/i);
+  });
+
+  it('keeps identifiers and code untranslated', () => {
+    expect(sys).toMatch(/identifiers, file paths, code symbols and quoted code/i);
+    expect(sys).toMatch(/verbatim/i);
+  });
+
+  it('applies to every agent, whatever its own system prompt says', () => {
+    // assemblePrompt is the single derivation point, so a user-created agent
+    // with an arbitrary prompt body gets the rule too.
+    const other = systemOf({ system: 'a totally different agent', diff: 'DIFF' });
+    expect(other).toMatch(/OUTPUT LANGUAGE/);
+  });
+});
+
 describe('assemblePrompt — ## PR description', () => {
   it('renders the section (untrusted-wrapped) before the diff when present', () => {
     const { messages, assembly } = assemblePrompt({

@@ -286,6 +286,32 @@ Worth knowing because the failure is at execution time, not typecheck time:
 `tsc` is perfectly happy with the `Date`. Evidence:
 `server/src/modules/reviews/repository/skill-stats.repo.ts`.
 
+### 2026-08-22 — [Context] `MockLLMProvider` cannot be constructed as `'openrouter'` — inject it by KEY instead
+
+Following the 2026-08-11 rule above ("inject EVERY provider the path can
+reach") runs straight into a wall: `MockLLMProvider`'s constructor accepts only
+`'openai' | 'anthropic'` (`src/adapters/mocks.ts:62-63`), so
+`new MockLLMProvider('openrouter')` does not compile — even though
+`LLMProvider.id` includes it and `container.llm('openrouter')` is a real path.
+
+Do not widen the shared mock for this. `Container.llm(id)` resolves an override
+by KEY and never inspects `provider.id`:
+
+    const injected = this.overrides.llm?.[id];
+    if (injected) return injected;
+
+So the `openrouter` slot takes an openai-flavoured mock and everything works —
+the id field is only ever read by code that builds a real provider. Keeping the
+fix at the call site is what holds the blast radius of a test-only change to
+the test file.
+
+Useful corollary for asserting a route makes NO model call: `MockLLMProvider`
+records every invocation in a public `calls` array, so `expect(mock.calls)
+.toEqual([])` is the assertion, and runtime is the cross-check — per the
+2026-08-11 entry, a leak to the real network shows up as seconds, not as a
+failed expectation. Evidence: `server/src/platform/container.ts:171`,
+`server/test/smart-diff.it.test.ts`.
+
 ## Recurring Errors & Fixes
 
 ### 2026-06-27 — [Context] Re-seeding won't refresh PR-level demo data if the PR row already exists

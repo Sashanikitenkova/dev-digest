@@ -3,7 +3,12 @@ import { startPg, dockerAvailable, type PgFixture } from './helpers/pg.js';
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/platform/config.js';
 import { seed } from '../src/db/seed.js';
-import { MockEmbedder, MockGitClient, MockGitHubClient } from '../src/adapters/mocks.js';
+import {
+  MockEmbedder,
+  MockGitClient,
+  MockGitHubClient,
+  MockLLMProvider,
+} from '../src/adapters/mocks.js';
 import * as t from '../src/db/schema.js';
 
 /**
@@ -122,7 +127,28 @@ d('Smart-diff route (Testcontainers pg)', () => {
     await pg?.stop();
   });
 
-  function appWith() {
+  /**
+   * Every provider the container can resolve, mocked.
+   *
+   * `ContainerOverrides.llm` is a PARTIAL record, so leaving one out is silent:
+   * the un-injected provider falls through to the real secrets file, finds a
+   * key, and makes live billed calls (server/INSIGHTS.md, 2026-08-11). Smart
+   * Diff must not reach a model at all, so all three go in.
+   *
+   * `MockLLMProvider`'s constructor only accepts 'openai' | 'anthropic'. That
+   * is fine: `container.llm(id)` looks the provider up by KEY and never
+   * inspects `provider.id`, so the openrouter slot takes an openai-flavoured
+   * mock.
+   */
+  function llmMocks() {
+    return {
+      openai: new MockLLMProvider('openai'),
+      anthropic: new MockLLMProvider('anthropic'),
+      openrouter: new MockLLMProvider('openai'),
+    };
+  }
+
+  function appWith(llm: ReturnType<typeof llmMocks> = llmMocks()) {
     return buildApp({
       config: config(),
       db: pg.handle.db,
@@ -130,6 +156,7 @@ d('Smart-diff route (Testcontainers pg)', () => {
         embedder: new MockEmbedder(),
         github: new MockGitHubClient(),
         git: new MockGitClient({ diff: '' }),
+        llm,
       },
     });
   }
@@ -297,5 +324,36 @@ d('Smart-diff route (Testcontainers pg)', () => {
 
     const res = await app.inject({ method: 'GET', url: `/pulls/${pr.id}/smart-diff` });
     expect(res.statusCode).toBe(404);
+  });
+
+  it('serves the whole response without calling a model', async () => {
+    // The acceptance criterion, asserted rather than trusted: viewing Smart
+    // Diff must produce no LLM call. This is the runtime half of the invariant
+    // -- smart-diff-no-llm.test.ts pins it statically.
+    //
+    // Exercised on the richest path on purpose: a PR with files AND findings
+    // from a real round, so classification, the findings join and the split
+    // suggestion all run before the assertion.
+    const llm = llmMocks();
+    const app = await appWith(llm);
+    const repo = await setupRepo(pg.handle.db, workspaceId);
+    const pr = await setupPr(pg.handle.db, workspaceId, repo.id, 8, FILES);
+    await setupReview(pg.handle.db, workspaceId, pr.id, new Date('2026-08-05T10:00:00.000Z'), [
+      { file: 'src/middleware/ratelimit.ts', startLine: 12, severity: 'CRITICAL' },
+      { file: 'package-lock.json', startLine: 40, severity: 'SUGGESTION' },
+    ]);
+
+    const res = await app.inject({ method: 'GET', url: `/pulls/${pr.id}/smart-diff` });
+
+    // The request did the real work...
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(groupOf(body, 'core').files[0]!.finding_lines).toEqual([12]);
+    expect(groupOf(body, 'boilerplate').files[0]!.finding_lines).toEqual([40]);
+
+    // ...and reached no provider while doing it.
+    for (const [id, mock] of Object.entries(llm)) {
+      expect(mock.calls, `smart-diff called the ${id} provider`).toEqual([]);
+    }
   });
 });
