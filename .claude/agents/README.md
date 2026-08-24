@@ -20,11 +20,12 @@ not redefined here.
 | Agent | Model | Write access | Status | Role |
 |---|---|---|---|---|
 | [researcher](researcher.md) | `sonnet` | none | active | Answers a specific question from the codebase or the web; returns a sourced report |
-| [planner](planner.md) | `opus` | none | active | Turns a request into a constraint-checked Development Plan |
+| [spec-creator](spec-creator.md) | `opus` | `specs/` only | active | Turns a request plus its design sources into one SPEC-NN file — EARS criteria, design review, module map |
+| [implementation-planner](implementation-planner.md) | `opus` | none | active | Reviews the existing requirements, then turns a request into a constraint-checked Implementation Plan |
 | [implementer](implementer.md) | `opus` | source + tests | active | Executes an approved plan across frontend and backend, then verifies its own scope |
 | [test-writer](test-writer.md) | `opus` | tests only | active | Writes and extends client, server, and reviewer-core tests to each package's own idioms, then runs the suite |
 | [architecture-reviewer](architecture-reviewer.md) | `opus` | none | active | Read-only boundary review; severity-normalized findings, each grounded in a `path:line` and a confidence score |
-| [plan-verifier](plan-verifier.md) | `opus` | none | active | Checks finished work against a Development Plan item by item and returns a verdict table |
+| [plan-verifier](plan-verifier.md) | `opus` | none | active | Checks finished work against an Implementation Plan item by item and returns a verdict table |
 | [doc-writer](doc-writer.md) | `opus` | `docs/` only | active | Turns a plan or a shipped feature into documentation, routed to the right place under `docs/` |
 
 ## Responsibilities and artifacts
@@ -41,20 +42,46 @@ not redefined here.
 | **Output** | `Conclusions` · `Evidence` (`path:line` or numbered source) · `References` · `Could not find` |
 | **Gate** | Asks 1–3 clarifying questions and stops when the question is vague, unbounded, or mode-ambiguous |
 
-### planner
+### spec-creator
 
 | | |
 |---|---|
-| **Owns** | Scoping a change by package, loading the governing rules, and designing an executable plan |
-| **Never** | Edits files, runs the app or tests, performs review (`/pr-self-review`, `/security-review`, `/code-review`), or fans out to other agents |
-| **Tools** | `Read, Grep, Glob, Bash, Skill` — no `Write`/`Edit`, no `Agent`, no web |
+| **Owns** | Writing down **what** should be built — the problem, EARS acceptance criteria, edge cases, a design review of what the mockups leave undefined, and a module-interaction map |
+| **Never** | Plans or implements (no file lists, build order, or code); writes outside `specs/`; edits an `approved`/`implemented` spec; sets `Status: approved`; fans out to other agents |
+| **Tools** | `Read, Grep, Glob, Write, Edit, Bash, Skill` — no `Agent`, no web |
+| **Write scope** | `specs/**` and `<pkg>/specs/**` only — prompt-enforced, like `doc-writer`'s `docs/` |
+| **Preloads** | `skills: mermaid-diagram`; loads `security` / `onion-architecture` / `frontend-architecture` on trigger, and never the implementation skills |
+| **Input** | A feature request plus whatever design sources the user supplies — description, screenshot, Figma export, existing code, reference repo |
+| **Output** | One `SPEC-NN-YYYY-MM-DD-<slug>.md` built from [`specs/TEMPLATE.md`](../../specs/TEMPLATE.md), an updated folder index, and a report: `Spec written` · `Scope` · `Context read` · `Design sources used` · `Design findings` · `Self-check` · `Blocking questions` · `Research requests` · `Open questions` · `Not done` |
+| **Gate** | Returns 1–5 blocking questions **and** any research requests together, and stops without writing. The main session answers and dispatches `researcher`, then re-invokes |
+
+It cannot fan out — subagents do not nest — so research it needs is *requested*
+as specific, answerable questions with a mode, and the main session runs
+`researcher` on them, in parallel where there is more than one.
+
+Zero design findings is a valid result. The section is evidence-gated precisely
+because a reviewer told to find gaps will find them.
+
+### implementation-planner
+
+| | |
+|---|---|
+| **Owns** | Reviewing the requirements that exist, scoping a change by package, loading the governing rules, settling the execution mode with the user, and designing an executable plan |
+| **Never** | Authors specs, acceptance criteria, or requirements documents (`<pkg>/specs/**` is read-only input); edits files, runs the app or tests, performs review (`/pr-self-review`, `/security-review`, `/code-review`), or fans out to other agents |
+| **Tools** | `Read, Grep, Glob, Bash, Skill, AskUserQuestion` — no `Write`/`Edit`, no `Agent`, no web |
 | **Preloads** | `skills: onion-architecture, frontend-architecture` |
-| **Input** | A feature or change request |
-| **Output** | A Development Plan returned as its report: `Context` · `Scope` · `Constraints in force` · `Skills for the implementer` · `Reuse` · `Steps` · `Tests` · `Verification` · `Risks & open questions` · `Out of scope` |
-| **Gate** | Asks 1–3 questions and stops when scope, acceptance criteria, or the frontend/backend split are undefined |
+| **Input** | A feature or change request, plus whatever written requirements exist under `<pkg>/specs/**` |
+| **Output** | An Implementation Plan returned as its report: `Context` · `Requirements review` · `Scope` · `Execution mode` · `Constraints in force` · `Skills for the implementer` · `Reuse` · `Steps` · `Tests` · `Verification` · `Risks & open questions` · `Out of scope` |
+| **Gates** | Two. **Requirements** — asks 1–3 questions and stops when scope, acceptance criteria, or the frontend/backend split are undefined. **Execution mode** — after scoping, asks whether the work runs multi-agent or single-agent, with a stated recommendation. Both use `AskUserQuestion`, falling back to returning the questions as the report |
+
+It reports on requirements; it does not write them. Missing or untestable
+criteria come back as findings and recommendations in `Requirements review`,
+never as an invented requirement planned against as though it had been given.
 
 The plan is a **handoff artifact**, written for an agent with no access to the
 originating conversation — no "as discussed above", every step names its files.
+In multi-agent mode each step group also names its owning agent, because every
+agent downstream starts in a fresh context.
 
 ### implementer
 
@@ -64,7 +91,7 @@ originating conversation — no "as discussed above", every step names its files
 | **Never** | Re-plans, fixes adjacent issues, self-grades, writes `INSIGHTS.md`, changes git state, runs migrations/seeds/installs, or touches Docker |
 | **Tools** | `Read, Grep, Glob, Edit, Write, Bash, Skill, TodoWrite` — no `Agent`, no web |
 | **Blast radius** | Source and tests only. Migrations are written but left unapplied and escalated |
-| **Input** | The full text of an approved Development Plan |
+| **Input** | The full text of an approved Implementation Plan |
 | **Output** | An Implementation Report: `Summary` · `Changes` · `Plan step status` · `Skills applied` · `Verification` · `Deviations` · `Not done / out of scope` · `Insight candidates` |
 | **Verification** | Per touched package only — `server/`: `pnpm typecheck` + `vitest --exclude '**/*.it.test.ts'` · `client/`: `pnpm typecheck` + `pnpm test` · `reviewer-core/`: `npm run typecheck` + `npm test` |
 
@@ -115,7 +142,7 @@ makes an empty `Findings` section trustworthy rather than merely unexamined.
 | **Never** | Reviews code quality, proposes refactors, edits anything, trusts an implementation report as evidence, marks an unevidenced item `done`, or issues an overall pass/fail |
 | **Tools** | `Read, Grep, Glob, Bash` — **no `Skill`**, deliberately: without it the agent cannot load a review skill and drift into generic code review |
 | **Bash contract** | Read-only inspection plus the touched packages' typecheck and test commands. No migrations, seeds, installs, Docker, or git state changes |
-| **Input** | The **full** Development Plan text plus the branch or commit range holding the delivered work |
+| **Input** | The **full** Implementation Plan text plus the branch or commit range holding the delivered work |
 | **Output** | `Verdict summary` · `Plan item verdicts` · `Commands run` · `Could not verify` · `Out-of-plan observations` |
 | **Verdicts** | `done` · `partial` · `missing` · `deviated` · `unverified` |
 | **Gate** | Asks 1–3 questions and stops when the plan text is a summary rather than the plan, or the delivered work is not identified |
@@ -130,7 +157,7 @@ is `skipped (no Docker)`, never `passed`.
 | | |
 |---|---|
 | **Owns** | Documenting implemented features, routing each artifact to its destination, and drawing Mermaid diagrams in the house style |
-| **Never** | Writes source, any `README.md`, `TESTING.md`, `CLAUDE.md`, `INSIGHTS.md`, `<pkg>/specs/**`, or anything under `.claude/`; documents behaviour it could not verify; documents a feature that does not exist yet |
+| **Never** | Writes source, any `README.md`, `TESTING.md`, `CLAUDE.md`, `INSIGHTS.md`, `specs/**` or `<pkg>/specs/**`, or anything under `.claude/`; documents behaviour it could not verify; documents a feature that does not exist yet |
 | **Tools** | `Read, Grep, Glob, Edit, Write, Bash, Skill` — no `Agent`, no web |
 | **Blast radius** | Markdown under `docs/**` and `<pkg>/docs/**` only. Every other destination is proposed in the report, never written. Enforced by prompt, not by the tool layer |
 | **Preloads** | `skills: mermaid-diagram` |
@@ -147,23 +174,27 @@ things and must never be filed as each other.
 ## How the set composes
 
 ```
-researcher   ──▶  facts (in-repo + external)
-                        │
-planner      ──▶  Development Plan  ──▶  [ user approves ]
-                        │
-        ┌───────────────┴───────────────┐
-        ▼                               ▼
-implementer  ◀── full plan text    test-writer  ──▶  tests + real suite results
-        │                               │
-        └───────────────┬───────────────┘
-                        ▼
-   architecture-reviewer · security review · /pr-self-review
-                        │
-                        ▼
-   plan-verifier  ◀── the same plan text, handed in again
-                        │
-                        ▼
-   doc-writer   ──▶  docs/ artifact for what actually shipped
+researcher              ──▶  facts (in-repo + external)
+                              ▲
+                              │  research requests, dispatched by the main session
+                              │
+spec-creator            ──▶  SPEC-NN under specs/  ──▶  [ user approves ]
+                              │
+implementation-planner  ──▶  Implementation Plan  ──▶  [ user approves ]
+                              │
+              ┌───────────────┴───────────────┐
+              ▼                               ▼
+        implementer  ◀── full plan text  test-writer  ──▶  tests + real suite results
+              │                               │
+              └───────────────┬───────────────┘
+                              ▼
+        architecture-reviewer · security review · /pr-self-review
+                              │
+                              ▼
+        plan-verifier  ◀── the same plan text, handed in again
+                              │
+                              ▼
+        doc-writer   ──▶  docs/ artifact for what actually shipped
 ```
 
 Each arrow crosses a context boundary. Nothing is shared implicitly — the report
@@ -186,9 +217,9 @@ returned by one agent is the only thing the next one receives.
 Not documented by Anthropic, and therefore local judgment — do not present any
 of these as an official rule:
 
-- The three-role planner → implementer → reviewer pipeline. The docs describe a
-  two-role writer/reviewer split; evaluator-optimizer supports separating the
-  roles but does not prescribe three.
+- The three-role implementation-planner → implementer → reviewer pipeline. The
+  docs describe a two-role writer/reviewer split; evaluator-optimizer supports
+  separating the roles but does not prescribe three.
 - The ~110–140 line target for agent bodies. The 500-line guidance applies to
   `SKILL.md`, not agents; no official numeric limit exists.
 - **`test-writer` may not edit non-test source to make a test pass.** The
@@ -217,7 +248,8 @@ of these as an official rule:
 | [`researcher.md`](researcher.md) | House prompt shape — folded-scalar `description`, `## Hard constraints` with bold labels, a `## Clarify first` gate, a fixed report skeleton with a mandatory negative-space section |
 | [root `CLAUDE.md`](../../CLAUDE.md) | Package scoping and the session protocol (read the touched package's `INSIGHTS.md` first); no workspace (`pnpm -w`, sibling `pnpm add`); do-not-touch paths; never `docker compose down -v` |
 | [`onion-architecture`](../skills/onion-architecture/SKILL.md) | Layer direction, ports before adapters, adapters only in `platform/container.ts`, Drizzle confined to `repository.ts`, never bypass `groundFindings()` |
-| [`pr-self-review/guides/skill-matrix.md`](../skills/pr-self-review/guides/skill-matrix.md) | **The shared glob → skill table.** The planner derives the implementer's rulebook from it; the implementer falls back to it if the plan is silent. One source of truth for both |
+| [`pr-self-review/guides/skill-matrix.md`](../skills/pr-self-review/guides/skill-matrix.md) | **The shared glob → skill table.** The implementation-planner derives the implementer's rulebook from it; the implementer falls back to it if the plan is silent. One source of truth for both |
+| [`specs/TEMPLATE.md`](../../specs/TEMPLATE.md) | The canonical spec skeleton and the required shape of every section — EARS patterns, the `US`/`AC`/`EC` traceability matrix with its verification hint, the design-review table, the interaction map plus `Contract impact`, and the provenance / untrusted-input tables. `spec-creator` copies it rather than inventing a layout; [`specs/README.md`](../../specs/README.md) carries the repo-wide `SPEC-NN` numbering and the `draft` → `approved` → `implemented` lifecycle |
 | [`engineering-insights`](../skills/engineering-insights/SKILL.md) | `INSIGHTS.md` is append-only with a duplicate check — so the implementer proposes candidate entries instead of writing them |
 | `server/CLAUDE.md` · `client/CLAUDE.md` | `*.it.test.ts` naming for DB-backed tests; client-first `"use client"` as a considered decision, not drift |
 | [`TESTING.md`](../../TESTING.md) | Per-package commands; `tsc --noEmit` is the only static gate — no lint exists in this repo |

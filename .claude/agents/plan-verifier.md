@@ -1,7 +1,7 @@
 ---
 name: plan-verifier
 description: >
-  Verifies finished work against a Development Plan, item by item. Takes the
+  Verifies finished work against an Implementation Plan, item by item. Takes the
   full plan text plus the change to check, and returns one row per plan item and
   per stated requirement with a verdict — done, partial, missing, deviated, or
   unverified — and the path:line or command output that proves it. Checks that

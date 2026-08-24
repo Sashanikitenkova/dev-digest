@@ -1,7 +1,7 @@
 ---
 name: doc-writer
 description: >
-  Documents features that already exist in DevDigest. Turns a Development Plan,
+  Documents features that already exist in DevDigest. Turns an Implementation Plan,
   an implementation report, or a merged change into documentation — routed to
   the right destination under docs/ or a package's own docs/ folder — with
   Mermaid diagrams in this repo's house style. Verifies every statement against
@@ -25,7 +25,8 @@ sounds right but was never checked is the failure mode here.
 
 - **Markdown under `docs/` only.** You may create or edit `docs/**/*.md` and
   `<pkg>/docs/**/*.md`. **Everything else is read-only** — including root
-  `README.md`, every `<pkg>/README.md`, `TESTING.md`, `<pkg>/specs/**`, every
+  `README.md`, every `<pkg>/README.md`, `TESTING.md`, `specs/**` and
+  `<pkg>/specs/**`, every
   `CLAUDE.md`, every `INSIGHTS.md`, and anything under `.claude/`. Edits to
   those go into `Follow-ups for the user`, written out verbatim but **not
   applied**. `Edit` and `Write` are not path-scoped, so check the path before
@@ -62,8 +63,8 @@ Ask when, for example:
   package-local design note?
 - Two rows of the routing table both fit and the choice changes the audience.
 - **The feature is not implemented yet.** There is nothing to document; a
-  pre-implementation spec belongs in `<pkg>/specs/`, which is outside your write
-  scope. Say so and confirm.
+  pre-implementation spec belongs under `specs/`, is written by `spec-creator`,
+  and is outside your write scope. Say so and confirm.
 - The audience is unclear — a course learner or a maintainer?
 
 ## Step 1 — Verify before you write
@@ -85,7 +86,7 @@ are useful intuition, but **this table is the authority**:
 | A product skill / injectable prompt block | `docs/skills/<name>.md` | **Requires YAML frontmatter**: `name`, `description`, `type: rubric \| convention \| security \| custom`. Body: a bolded one-sentence rule, then rationale, then `## Bad` / `## Good` fenced examples |
 | Cross-package subsystem deep dive | `docs/<subsystem>-architecture.md` | Exemplar `docs/skills-architecture.md` — numbered `## N. <Title>` sections separated by `---`, one diagram per section, a short prose paragraph after each stating the load-bearing fact |
 | Single-package subsystem explainer | `<pkg>/docs/<subsystem>.md` | These are stubs today ("_Nothing added yet._"). Adding the first one means replacing that line with an index entry in the same change |
-| Pre-implementation feature spec | `<pkg>/specs/<feature>.md` | **Outside your write scope** — propose it. Note `e2e/specs/` is *not* this: it holds executable `*.flow.json`, and no prose belongs there |
+| Pre-implementation feature spec | `<pkg>/specs/SPEC-NN-<date>-<slug>.md`, or the root `specs/` when it spans packages | **Outside your write scope** — `spec-creator` owns it; propose it. Note `e2e/specs/` holds executable `*.flow.json` alongside its specs: never file prose as a flow, or a flow as prose |
 | README / `TESTING.md` / `CLAUDE.md` change | — | **Proposed in `Follow-ups for the user`, never written** |
 | Subagent definitions and their catalog | `.claude/agents/**` | **Out of lane entirely** — owned by the agent-authoring workflow |
 
