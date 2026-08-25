@@ -27,6 +27,26 @@ Critical/High/Medium/Low definitions with repo-concrete examples.
 - **Skip** when every changed file is docs/markdown/config (no `.ts`/`.tsx` source
   changed) — report "no review needed" and stop before building the matrix.
 
+## When This Runs Inside the SDD Pipeline
+
+When this skill runs as the merge gate at the end of the agent pipeline
+(`implementer` → Gate A → `test-writer` → `plan-verifier` → here), two parts of
+the matrix have already been paid for by a stricter reviewer. Skip them —
+running them again buys a second opinion that is weaker than the first.
+
+| Normally | In the pipeline | Why |
+|---|---|---|
+| `onion-architecture` + `frontend-architecture` (steps 4–5) | **Skip** | `architecture-reviewer` already ran both, with a *stricter* gate: a two-phase false-positive filter, a documented exclusion list, and a confidence ≥ 8 threshold. Cite its report instead of re-deriving a weaker version of it |
+| Mechanical checks (step 6) | **Skip if** `plan-verifier` ran them at the same `HEAD` | Its `Commands run` table is the evidence. Re-run only if `HEAD` moved since, or if that table shows **skipped (no Docker)** for a lane this change needs |
+
+Everything else runs unchanged — `code-review`, `security-review`, `simplify`,
+`verify`, and the tech skills are **not** covered by any upstream agent, and
+`security-review` in particular has no other owner in the pipeline at all.
+
+State in the report which steps you skipped and whose report you are relying on.
+A skipped step that isn't named reads as a step that passed. And if either
+upstream report is missing, do not assume it was clean — run the full matrix.
+
 ## Workflow
 
 1. **Determine diff scope.** `git diff $(git merge-base main HEAD)...HEAD`, plus any

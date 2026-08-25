@@ -71,6 +71,14 @@ Before planning anything, establish what you have actually been asked for.
    itself; the fix is to have `spec-creator` write one. Note that
    `e2e/specs/` holds executable `*.flow.json` flows — read those as a record of
    existing behaviour, never as requirements prose.
+
+   When a spec **is** found, record its ID and status verbatim as
+   `Spec: SPEC-NN (status)` in `Requirements review`. Only `approved` authorizes
+   a build. A `draft` spec is not a blocker on its own — plan against it if the
+   user asks — but **say so explicitly** rather than letting the plan imply the
+   requirements were settled. `specs/README.md` is the authority on the
+   `draft` → `approved` → `implemented` lifecycle.
+
 2. **Verify.** Is there a knowable definition of done? Are the criteria
    testable, internally consistent, and free of contradictions with what the
    code already does? Mark anything you cannot verify as unverifiable rather
@@ -100,23 +108,43 @@ main session relays them. Never guess your way into a large plan.
 
 Classify the request into the packages it touches: `client/`, `server/` (code
 under `server/src/modules/repo-intel/**` counts as `server/`), `reviewer-core/`,
-`e2e/`. Then **read each touched package's `CLAUDE.md` and `INSIGHTS.md` in
-full.** The `CLAUDE.md` hierarchy loads automatically; `INSIGHTS.md` does not —
+`e2e/`, `mcp/`. Then **read each touched package's `CLAUDE.md` and `INSIGHTS.md`
+in full.**
+ The `CLAUDE.md` hierarchy loads automatically; `INSIGHTS.md` does not —
 reading it is on you, and it is where the non-obvious constraints live.
 
 State explicitly which packages the plan does *not* touch.
 
-## Step 2 — Load the implementer's rulebook
+## Step 2 — Derive the rulebook, then carry it rather than cite it
 
 The implementer works under project skills. A plan that contradicts one of them
-is a defective plan. Derive the applicable set from
-`.claude/skills/pr-self-review/guides/skill-matrix.md` — apply its glob → skill
-table to the files you intend to touch — then read each matched `SKILL.md`.
+is a defective plan.
 
-Record what you found in the plan itself, so the implementer inherits the same
-rulebook rather than rediscovering it. Note the shared-contracts special case:
-a change under either `vendor/shared/**` runs both the backend and frontend
-matrices, and the two vendored copies must be changed together.
+**Read `.claude/skills/pr-self-review/guides/skill-matrix.md` — and, by default,
+only that.** Apply its glob → skill table to the files you intend to touch. Open
+a full `SKILL.md` **only** when you need to settle a specific question: whether a
+rule conflicts with this change, or what a rule actually requires at the point
+where your design touches it. Do not read matched skills end-to-end as a matter
+of routine.
+
+The reason is cost, and it is measured. `react-testing-library/SKILL.md` is
+19 KB, `postgresql-table-design` 16 KB, `typescript-expert` 15 KB. Reading five
+of them here and then having the implementer load the same five again pays for
+the identical content twice, in two contexts, before a line of code is written.
+
+So **carry the rules, don't just name them**: write the specific binding rules
+into `Constraints in force` as short quotes with their source, phrased for *this
+change*. A plan that says "onion-architecture: all Drizzle access stays in
+`repository.ts`" saves the implementer from loading a skill to learn one line.
+
+**Name at most 3–4 skills** in `Skills for the implementer`, and only ones whose
+detail the implementer genuinely needs at the keyboard. If you find yourself
+naming more, that is a signal the change should be split, not that the list
+should grow.
+
+Note the shared-contracts special case: a change under either
+`vendor/shared/**` runs both the backend and frontend matrices, and the two
+vendored copies must be changed together.
 
 ## Step 3 — Choose the execution mode
 
@@ -126,13 +154,47 @@ reason for it — never decide silently.
 
 | Mode | What the plan then contains |
 |---|---|
-| **Multi-agent** | Steps grouped into a delegation track that names the owning agent per group — `implementer` (code), `test-writer` (tests), `architecture-reviewer` + `/pr-self-review` (review), `plan-verifier` (verification), `doc-writer` (docs). Each group states its own handoff input and done-when, because every agent starts in a fresh context and sees only what it is handed |
+| **Multi-agent** | Steps grouped into a delegation track that names the owning agent per group — `implementer` (code **only**, no tests), `test-writer` (every row of `## Tests`), `architecture-reviewer` + `/pr-self-review` (review), `plan-verifier` (verification), `doc-writer` (docs). Each group states its own handoff input and done-when, because every agent starts in a fresh context and sees only what it is handed |
 | **Single-agent** | One linear ordered checklist for a single implementing pass — tests written inline with the steps they cover, verification at the end |
 
 Recommend **multi-agent** when the change spans two or more packages, adds a
 backend module or adapter, or needs independent review of a boundary. Recommend
 **single-agent** when it is one package, a bounded surface, and the existing
 suites already cover the area.
+
+**Test ownership is decided by the mode, and the plan must say so.** In
+multi-agent mode `implementer` writes no tests at all — every row of `## Tests`
+is `test-writer`'s, and the plan's step groups must not hand a `*.test.ts` file
+to `implementer`. In single-agent mode the one implementing pass writes them
+inline. Leaving this implicit gets the same tests written twice, in two
+contexts, and the suite run twice to prove it.
+
+### The review order the plan should assume
+
+Multi-agent plans are executed in this order, and the delegation track should be
+written to match it:
+
+```
+implementer  (code; typecheck + narrow tests only)
+     │
+     ├─ Gate A ─ architecture-reviewer  ∥  plan-verifier (completeness pass)
+     │            both read-only, same branch diff, dispatched in parallel
+     │
+implementer  (Remediation Plan — the findings, and nothing beyond them)
+     │
+test-writer  (tests against the now-settled shape; full suite)
+     │
+plan-verifier  (final: Tests rows + AC rows + delta on the findings)
+     │
+/pr-self-review  ──▶  doc-writer
+```
+
+Gate A sits **before** `test-writer` on purpose. Both classes of defect it
+catches are cheaper on the left: a layering violation found late moves code and
+breaks tests that already bound themselves to the old shape, and a missed plan
+item found late costs new code, new tests, another review and another
+verification. The two agents are read-only and take the same diff, so they do
+not conflict and should be dispatched in one block.
 
 ## Step 4 — Reuse survey
 
@@ -172,6 +234,7 @@ Return the plan as your final report, in exactly these sections:
 ## Reuse
 ## Steps
 ## Tests
+## Traceability
 ## Verification
 ## Risks & open questions
 ## Out of scope
@@ -195,7 +258,16 @@ Return the plan as your final report, in exactly these sections:
   constraint governs it · done-when — plus the **owning agent** when the mode is
   multi-agent.
 - **Tests** — new or changed tests per package, with the exact command that runs
-  them.
+  them. In multi-agent mode every row here is owned by `test-writer`.
+- **Traceability** — table: `AC-n` (quoted from the spec) · the plan step that
+  implements it · the test that proves it · the spec's verification hint. One
+  row per acceptance criterion, never fewer. This is the section `plan-verifier`
+  reads to produce a verdict per criterion, so **an `AC-n` with no step is a
+  finding, not a blank cell** — write `no step — see Risks` and say why.
+  When no written spec exists, say `no spec — criteria not written` and skip the
+  table rather than inventing criteria to fill it; inventing them is authoring
+  requirements, which is not your lane.
+
 - **Verification** — exact commands and expected outcome, per package.
 - **Risks & open questions** — what the implementer must escalate rather than
   decide alone.

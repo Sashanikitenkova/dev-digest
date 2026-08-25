@@ -22,9 +22,9 @@ not redefined here.
 | [researcher](researcher.md) | `sonnet` | none | active | Answers a specific question from the codebase or the web; returns a sourced report |
 | [spec-creator](spec-creator.md) | `opus` | `specs/` only | active | Turns a request plus its design sources into one SPEC-NN file — EARS criteria, design review, module map |
 | [implementation-planner](implementation-planner.md) | `opus` | none | active | Reviews the existing requirements, then turns a request into a constraint-checked Implementation Plan |
-| [implementer](implementer.md) | `opus` | source + tests | active | Executes an approved plan across frontend and backend, then verifies its own scope |
-| [test-writer](test-writer.md) | `opus` | tests only | active | Writes and extends client, server, and reviewer-core tests to each package's own idioms, then runs the suite |
-| [architecture-reviewer](architecture-reviewer.md) | `opus` | none | active | Read-only boundary review; severity-normalized findings, each grounded in a `path:line` and a confidence score |
+| [implementer](implementer.md) | `opus` | source + tests | active | Executes an approved plan (or a Remediation Plan) across frontend and backend; writes tests only in single-agent mode |
+| [test-writer](test-writer.md) | `sonnet` | tests only | active | Writes and extends client, server, and reviewer-core tests to each package's own idioms, then runs the suite |
+| [architecture-reviewer](architecture-reviewer.md) | `sonnet` | none | active | Read-only boundary review; severity-normalized findings, each grounded in a `path:line` and a confidence score |
 | [plan-verifier](plan-verifier.md) | `opus` | none | active | Checks finished work against an Implementation Plan item by item and returns a verdict table |
 | [doc-writer](doc-writer.md) | `opus` | `docs/` only | active | Turns a plan or a shipped feature into documentation, routed to the right place under `docs/` |
 
@@ -71,12 +71,25 @@ because a reviewer told to find gaps will find them.
 | **Tools** | `Read, Grep, Glob, Bash, Skill, AskUserQuestion` — no `Write`/`Edit`, no `Agent`, no web |
 | **Preloads** | `skills: onion-architecture, frontend-architecture` |
 | **Input** | A feature or change request, plus whatever written requirements exist under `<pkg>/specs/**` |
-| **Output** | An Implementation Plan returned as its report: `Context` · `Requirements review` · `Scope` · `Execution mode` · `Constraints in force` · `Skills for the implementer` · `Reuse` · `Steps` · `Tests` · `Verification` · `Risks & open questions` · `Out of scope` |
+| **Output** | An Implementation Plan returned as its report: `Context` · `Requirements review` · `Scope` · `Execution mode` · `Constraints in force` · `Skills for the implementer` · `Reuse` · `Steps` · `Tests` · **`Traceability`** · `Verification` · `Risks & open questions` · `Out of scope` |
 | **Gates** | Two. **Requirements** — asks 1–3 questions and stops when scope, acceptance criteria, or the frontend/backend split are undefined. **Execution mode** — after scoping, asks whether the work runs multi-agent or single-agent, with a stated recommendation. Both use `AskUserQuestion`, falling back to returning the questions as the report |
 
 It reports on requirements; it does not write them. Missing or untestable
 criteria come back as findings and recommendations in `Requirements review`,
 never as an invented requirement planned against as though it had been given.
+
+`Traceability` is what closes the spec-driven loop: one row per `AC-n` mapping
+the criterion to the plan step that implements it, the test that proves it, and
+the spec's verification hint. `plan-verifier` reads that section to return a
+verdict **per acceptance criterion**, not merely per plan step — without it the
+pipeline can confirm the builder followed instructions but never that the
+feature is what was specified.
+
+It reads `guides/skill-matrix.md` to derive the rulebook, but opens a full
+`SKILL.md` only to settle a specific conflict, and writes the binding rules into
+`Constraints in force` as short sourced quotes. Reading five matched skills here
+and having the implementer load the same five again pays for identical content
+twice — `react-testing-library` alone is 19 KB.
 
 The plan is a **handoff artifact**, written for an agent with no access to the
 originating conversation — no "as discussed above", every step names its files.
@@ -87,22 +100,28 @@ agent downstream starts in a fresh context.
 
 | | |
 |---|---|
-| **Owns** | Executing an approved plan, writing tests, and running the touched packages' existing gates |
-| **Never** | Re-plans, fixes adjacent issues, self-grades, writes `INSIGHTS.md`, changes git state, runs migrations/seeds/installs, or touches Docker |
-| **Tools** | `Read, Grep, Glob, Edit, Write, Bash, Skill, TodoWrite` — no `Agent`, no web |
+| **Owns** | Executing an approved plan, and running a narrow gate over the packages it touched |
+| **Never** | Re-plans, fixes adjacent issues, self-grades, writes `INSIGHTS.md`, changes git state, runs migrations/seeds/installs, touches Docker, or (in multi-agent mode) writes tests |
+| **Tools** | `Read, Grep, Glob, Edit, Write, Bash, Skill, TodoWrite` — no `Agent`, no web. `maxTurns: 120` as a backstop, not a target |
 | **Blast radius** | Source and tests only. Migrations are written but left unapplied and escalated |
-| **Input** | The full text of an approved Implementation Plan |
+| **Input** | The full text of an approved Implementation Plan — **or** a Remediation Plan: numbered review findings, each with a `path:line`, which it treats as plan steps |
 | **Output** | An Implementation Report: `Summary` · `Changes` · `Plan step status` · `Skills applied` · `Verification` · `Deviations` · `Not done / out of scope` · `Insight candidates` |
-| **Verification** | Per touched package only — `server/`: `pnpm typecheck` + `vitest --exclude '**/*.it.test.ts'` · `client/`: `pnpm typecheck` + `pnpm test` · `reviewer-core/`: `npm run typecheck` + `npm test` |
+| **Verification** | `TESTING.md` §Running locally is the command source. `typecheck` plus tests **filtered to the changed files**, run **once**, after the last step; at most two fix attempts per failing gate. The full suite belongs to `test-writer` and `plan-verifier` |
 
 It reports **verification facts**, never a verdict — architecture and security
 judgment belong to separate review agents and the `pr-self-review` gate.
+
+A **Remediation Plan** is the mechanism that closes review findings. Without it
+the loop has no owner: `architecture-reviewer` and `test-writer` can only
+report, and a plan-bounded implementer would rightly refuse to fix anything the
+original plan never mentioned. "No scope creep" then means nothing *beyond* the
+listed findings — not permission to decline them.
 
 ### test-writer
 
 | | |
 |---|---|
-| **Owns** | Writing and extending tests across `client/`, `server/`, and `reviewer-core/`, to each package's own idioms |
+| **Owns** | Writing and extending tests across `client/`, `server/`, `reviewer-core/`, and `mcp/`, to each package's own idioms. In multi-agent mode it is the **sole** owner of tests |
 | **Never** | Edits non-test source, makes a red test green by changing the code under test, `it.skip`s a failing test, writes `INSIGHTS.md`, runs migrations/seeds/installs, touches Docker, or authors `e2e/` flows |
 | **Tools** | `Read, Grep, Glob, Edit, Write, Bash, Skill, TodoWrite` — no `Agent`, no web |
 | **Blast radius** | Test files only — `client/src/**/*.test.tsx`, `server/test/**`, `reviewer-core/test/**`. Enforced by prompt, not by the tool layer |
@@ -138,19 +157,24 @@ makes an empty `Findings` section trustworthy rather than merely unexamined.
 
 | | |
 |---|---|
-| **Owns** | Checking delivered work against the plan that authorized it, one row per plan item |
+| **Owns** | Checking delivered work against the plan that authorized it — one row per plan item, **and one per `AC-n`** in the plan's `Traceability` |
 | **Never** | Reviews code quality, proposes refactors, edits anything, trusts an implementation report as evidence, marks an unevidenced item `done`, or issues an overall pass/fail |
 | **Tools** | `Read, Grep, Glob, Bash` — **no `Skill`**, deliberately: without it the agent cannot load a review skill and drift into generic code review |
 | **Bash contract** | Read-only inspection plus the touched packages' typecheck and test commands. No migrations, seeds, installs, Docker, or git state changes |
 | **Input** | The **full** Implementation Plan text plus the branch or commit range holding the delivered work |
-| **Output** | `Verdict summary` · `Plan item verdicts` · `Commands run` · `Could not verify` · `Out-of-plan observations` |
+| **Output** | `Verdict summary` · `Plan item verdicts` · **`Acceptance criteria verdicts`** · `Commands run` · `Could not verify` · `Out-of-plan observations` |
 | **Verdicts** | `done` · `partial` · `missing` · `deviated` · `unverified` |
+| **Modes** | **Completeness pass** (Gate A, parallel with `architecture-reviewer`, before `test-writer`): `Tests` rows are `deferred to test-writer`, never `missing`; `typecheck` only, no suites. **Final pass**: everything, including the suites. Unstated dispatch means final |
 | **Gate** | Asks 1–3 questions and stops when the plan text is a summary rather than the plan, or the delivered work is not identified |
 
 It verifies work it did not do — a fresh model that never saw the reasoning
 behind the change. Evidence is a `path:line` it read or a command it ran; an
 item without that is `unverified`, never `done`, and a skipped integration suite
 is `skipped (no Docker)`, never `passed`.
+
+The `AC-n` rows are the point of the whole pipeline: a criterion whose plan step
+shipped but whose behaviour could not be observed is `unverified`, because the
+step existing is evidence about the builder, not about the criterion.
 
 ### doc-writer
 
@@ -178,27 +202,99 @@ researcher              ──▶  facts (in-repo + external)
                               ▲
                               │  research requests, dispatched by the main session
                               │
-spec-creator            ──▶  SPEC-NN under specs/  ──▶  [ user approves ]
+spec-creator            ──▶  SPEC-NN under specs/  ──▶  [ user sets approved ]
                               │
-implementation-planner  ──▶  Implementation Plan  ──▶  [ user approves ]
+implementation-planner  ──▶  Implementation Plan (+ ## Traceability)
+                              │                  ──▶  [ user approves ]
+                              ▼
+        implementer   ◀── full plan text
+                      code only in multi-agent mode; typecheck + narrow tests
                               │
-              ┌───────────────┴───────────────┐
-              ▼                               ▼
-        implementer  ◀── full plan text  test-writer  ──▶  tests + real suite results
+              ┌───── Gate A ──┴───────────────┐   dispatched in parallel:
+              ▼                               ▼   read-only, same branch diff
+        architecture-reviewer          plan-verifier  (completeness pass)
               │                               │
               └───────────────┬───────────────┘
                               ▼
-        architecture-reviewer · security review · /pr-self-review
+        implementer   ◀── Remediation Plan  (the findings, nothing beyond)
                               │
                               ▼
-        plan-verifier  ◀── the same plan text, handed in again
+        test-writer   ──▶  tests + real suite results
                               │
                               ▼
-        doc-writer   ──▶  docs/ artifact for what actually shipped
+        plan-verifier ◀── the same plan text, handed in again
+                      final pass: Tests rows · AC-n rows · delta on findings
+                              │
+                              ▼
+        /pr-self-review   (skips onion/frontend + mechanical checks
+                           already covered upstream — see its SKILL.md)
+                              │
+                              ▼
+        doc-writer    ──▶  docs/ artifact for what actually shipped
+                              │
+                              ▼
+        /engineering-insights  ──▶  [ user sets SPEC-NN implemented ]
 ```
 
 Each arrow crosses a context boundary. Nothing is shared implicitly — the report
 returned by one agent is the only thing the next one receives.
+
+**Everything below `[ user approves ]` is executed by
+[`/run-plan`](../skills/run-plan/SKILL.md)** — it takes the approved plan and
+drives implementer, Gate A, the capped remediation loop, tests, final
+verification, the merge gate and docs. The two agents above that line,
+`spec-creator` and `implementation-planner`, are run separately and by hand:
+writing a spec and designing a plan are the two steps that most need a human in
+the loop, and folding them into an orchestrator would hide exactly the decisions
+worth stopping on.
+
+Model choice follows the shape of the work, not the position in the pipeline.
+`architecture-reviewer` and `test-writer` run on `sonnet`: the first works from
+an explicit checklist behind a mechanical grounding gate, the second matches an
+existing test corpus — both recognition tasks. `plan-verifier` stays on `opus`
+because its value is the rows it honestly marks `unverified` or `missing`, and
+that discipline is the first thing to degrade. The pipeline's real cost is
+`implementer` in the remediation loop, not the reviewers.
+
+Three things about this order are deliberate:
+
+- **Gate A runs before `test-writer`, not after.** Both defects it catches are
+  cheaper on the left. A layering violation found later moves code that tests
+  have already bound themselves to; a missed plan item found later costs new
+  code, new tests, another review and another verification. Both agents are
+  read-only and take the same diff, so they are dispatched in one block rather
+  than in sequence.
+- **There is no `security-reviewer` agent.** Security is the `security-review`
+  skill, run as step 5 of `/pr-self-review` — the pipeline's single security
+  owner. Earlier versions of this diagram showed it as a separate lane; it never
+  was one.
+- **`Status: implemented` is a human act.** No agent can set it: `doc-writer`
+  cannot write `specs/**`, and `spec-creator` writes `draft` only. The pipeline
+  ends by *reminding*, not by flipping it — see `specs/README.md` for the
+  `draft` → `approved` → `implemented` lifecycle.
+
+### Test ownership follows the execution mode
+
+The plan's `Execution mode` decides who writes tests, and both agents check it:
+
+| Mode | `implementer` | `test-writer` |
+|---|---|---|
+| multi-agent | code only — writes **no** tests | owns every row of the plan's `## Tests` |
+| single-agent | writes tests inline with the steps | not dispatched |
+
+Leaving this implicit is how the same coverage gets authored twice, in two
+contexts, with the suite run twice to prove it.
+
+### Who runs the full suite
+
+`implementer` runs `typecheck` plus tests **filtered to the files it changed**,
+exactly once, after its last step. The full package suite is run by
+`test-writer` and by `plan-verifier`'s final pass — the two agents whose runs
+are the pipeline's actual evidence — and, when not already covered at the same
+`HEAD`, by `/pr-self-review`. The trade is explicit: a behavioural regression in
+an untouched package surfaces one hop later than it used to. `typecheck` still
+runs everywhere, and in `server/` it also type-checks `reviewer-core`, which is
+consumed as source through a tsconfig path alias.
 
 ## Rule sources
 
@@ -252,10 +348,10 @@ of these as an official rule:
 | [`specs/TEMPLATE.md`](../../specs/TEMPLATE.md) | The canonical spec skeleton and the required shape of every section — EARS patterns, the `US`/`AC`/`EC` traceability matrix with its verification hint, the design-review table, the interaction map plus `Contract impact`, and the provenance / untrusted-input tables. `spec-creator` copies it rather than inventing a layout; [`specs/README.md`](../../specs/README.md) carries the repo-wide `SPEC-NN` numbering and the `draft` → `approved` → `implemented` lifecycle |
 | [`engineering-insights`](../skills/engineering-insights/SKILL.md) | `INSIGHTS.md` is append-only with a duplicate check — so the implementer proposes candidate entries instead of writing them |
 | `server/CLAUDE.md` · `client/CLAUDE.md` | `*.it.test.ts` naming for DB-backed tests; client-first `"use client"` as a considered decision, not drift |
-| [`TESTING.md`](../../TESTING.md) | Per-package commands; `tsc --noEmit` is the only static gate — no lint exists in this repo |
+| [`TESTING.md`](../../TESTING.md) | **The single source of truth for every test command.** `implementer`, `test-writer` and `plan-verifier` point at its §Running locally instead of each carrying its own copied table — four copies had already drifted apart. It also records why the split is invoked as `pnpm exec vitest run …` rather than through `test:unit` / `test:integration` scripts: `server/package.json` is `skip-worktree`, so CI deliberately does not rely on the committed file carrying them. `tsc --noEmit` is the only static gate — no lint exists in this repo |
 | [`TESTING.md`](../../TESTING.md) §Philosophy | "Mock the outside world" via `server/src/adapters/mocks.ts` — **deliberately the opposite** of the generic "avoid mocks" advice in Anthropic's prompting examples, because the mocked surfaces are the non-deterministic, key-requiring, paid external boundaries, and the repo keeps one real-Postgres integration lane for everything else. The repo wins; `test-writer` says so explicitly |
 | [`severity-rubric.md`](../skills/pr-self-review/guides/severity-rubric.md) | The Critical/High/Medium/Low scale and the "don't flag as issues at all" list — the exclusion list `architecture-reviewer` filters against, alongside the documented onion deviations in [`pitfalls-and-tradeoffs.md`](../skills/onion-architecture/guides/pitfalls-and-tradeoffs.md) |
-| `.claude/settings.local.json` | Verification commands are chosen to sit inside the existing `permissions.allow` list so agents don't stall on prompts |
+| `.claude/settings.local.json` | Verification commands are chosen to sit inside the existing `permissions.allow` list so agents don't stall on prompts. `reviewer-core/` and `mcp/` use `npm run typecheck`, which needs its own entry — `Bash(npm test *)` does not cover it |
 
 ## Conventions for new agents
 
