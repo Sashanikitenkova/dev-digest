@@ -97,6 +97,15 @@ export const s = {
   specsWrap: { display: "flex", gap: 6, flexWrap: "wrap" } satisfies CSSProperties,
   specsNone: { color: "var(--text-muted)" } satisfies CSSProperties,
   spec: { fontSize: 12, color: "var(--text-secondary)" } satisfies CSSProperties,
+  /* A document that was attached but could not be read. Struck through and
+     muted so the row reads as "asked for, not delivered" rather than as
+     another source the review actually had. */
+  specMissing: {
+    fontSize: 12,
+    color: "var(--text-muted)",
+    textDecoration: "line-through",
+  } satisfies CSSProperties,
+  specReason: { fontSize: 12, color: "var(--warn)" } satisfies CSSProperties,
   statsRow: { display: "flex", gap: 10 } satisfies CSSProperties,
   rawPre: {
     margin: 0,

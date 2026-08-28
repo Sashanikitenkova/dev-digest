@@ -19,6 +19,11 @@
  *
  * Pure-ish: takes a root path + does fs ops; returns plain data so the caller
  * (full.ts / incremental.ts) can decide what to do with it.
+ *
+ * SPEC-01: an optional second argument (`WalkOptions`) lets a non-indexer
+ * caller swap the extension set and prune directories — the project-context
+ * discovery walk uses it to collect `.md` under the configured roots. The
+ * exclusions, the symlink rule and both budgets are shared, not re-declared.
  */
 import { readdir, stat } from 'node:fs/promises';
 import type { Dirent } from 'node:fs';
@@ -49,14 +54,40 @@ export interface WalkResult {
 }
 
 /**
+ * Optional overrides (SPEC-01). Both default to today's indexer behaviour, so
+ * `walkClone(root)` is byte-identical to the pre-SPEC-01 function and the two
+ * existing callers (`pipeline/full.ts`, `pipeline/incremental.ts`) are untouched.
+ *
+ * Overriding these does NOT relax any safety or budget rule: EXCLUDED_DIRS is
+ * still applied on top of `dirFilter`, symlinks are still never followed, and
+ * MAX_FILE_SIZE / MAX_INDEXED_FILES still bound the result. That is the whole
+ * reason the `.md` discovery walk extends this function instead of forking a
+ * second walker that would have to re-earn those guarantees.
+ */
+export interface WalkOptions {
+  /** Lower-cased extensions to collect, INCLUDING the dot. Default: SUPPORTED_EXT. */
+  extensions?: readonly string[];
+  /**
+   * Extra directory-name predicate, applied in ADDITION to EXCLUDED_DIRS —
+   * return false to prune. Receives the directory's own name and its
+   * root-relative path, so a caller can restrict the walk to configured
+   * top-level roots without re-implementing the recursion.
+   */
+  dirFilter?: (name: string, relPath: string) => boolean;
+}
+
+/**
  * Recursively walk `root`, returning the file set to parse + a small stats
  * object the pipeline persists into `repo_index_state.stats`.
  */
-export async function walkClone(root: string): Promise<WalkResult> {
+export async function walkClone(root: string, options?: WalkOptions): Promise<WalkResult> {
   const out: string[] = [];
   const stats: WalkStats = { totalCandidates: 0, skippedTooLarge: 0, bounded: 0 };
+  const extensions: ReadonlySet<string> = options?.extensions
+    ? new Set(options.extensions.map((e) => e.toLowerCase()))
+    : SUPPORTED_SET;
 
-  await walkDir(root, root, out, stats);
+  await walkDir(root, root, out, stats, extensions, options?.dirFilter);
 
   // Stable order: alphabetical relpath. Keeps "first N when bounded" reproducible
   // across runs (until T3 replaces it with rank-driven selection).
@@ -75,6 +106,8 @@ async function walkDir(
   dir: string,
   out: string[],
   stats: WalkStats,
+  extensions: ReadonlySet<string>,
+  dirFilter?: (name: string, relPath: string) => boolean,
 ): Promise<void> {
   let entries: Dirent[];
   try {
@@ -90,15 +123,22 @@ async function walkDir(
     const name = entry.name;
 
     if (entry.isDirectory()) {
+      // EXCLUDED_DIRS is checked FIRST and unconditionally: a caller-supplied
+      // dirFilter can only ever narrow the walk, never re-admit node_modules.
       if (EXCLUDED_SET.has(name)) continue;
-      await walkDir(root, join(dir, name), out, stats);
+      const childDir = join(dir, name);
+      if (dirFilter) {
+        const rel = relative(root, childDir).split(sep).join('/');
+        if (!dirFilter(name, rel)) continue;
+      }
+      await walkDir(root, childDir, out, stats, extensions, dirFilter);
       continue;
     }
 
     if (!entry.isFile()) continue;
 
     const ext = extname(name).toLowerCase();
-    if (!SUPPORTED_SET.has(ext)) continue;
+    if (!extensions.has(ext)) continue;
 
     stats.totalCandidates += 1;
 

@@ -81,6 +81,52 @@ export function formatSkillBlocks(skills: SkillBlock[]): string[] {
   );
 }
 
+/**
+ * One project-context document resolved into a prompt block.
+ *
+ * BREAKING (SPEC-01): `PromptParts.specs` / `ReviewInput.specs` were
+ * `string[]` — anonymous chunks rendered as `spec-0`, `spec-1`, … Each document
+ * now carries the repo-relative path it was read from, because a rule the model
+ * is asked to apply ("the `api/` module must not import `db/` directly") is only
+ * actionable when the model — and the run trace — can name the document it came
+ * from. Every caller passing bare strings must be updated; there is no
+ * compatibility shim on purpose, so the compiler finds them all.
+ */
+export interface SpecDoc {
+  /** Repo-relative path, e.g. `docs/architecture.md`. Already containment-checked
+      by the caller (`safeContextPath` in the server); reviewer-core does no I/O
+      and therefore cannot validate it itself. */
+  path: string;
+  /** The document's markdown body, verbatim and UNTRUNCATED. */
+  content: string;
+}
+
+/**
+ * Render project-context documents into the `## Project context` blocks
+ * consumed by `assemblePrompt`'s `specs` slot.
+ *
+ * Per document: `### <path>` as a visible heading, then the body inside
+ * `<untrusted source="spec:<path>">…</untrusted>`. The path appears TWICE by
+ * design — the heading is what the model reads and can cite, the delimiter
+ * label is what ties the block to the shared INJECTION_GUARD.
+ *
+ * Every document is untrusted without exception. Unlike a skill, which can be
+ * `source: 'manual'` and therefore trusted, a repository document is whatever
+ * the clone happens to contain at review time — including a file a PR author
+ * just added. `wrapUntrusted` already neutralises an embedded `</untrusted>`,
+ * so a document cannot close its own delimiter and escape into instruction
+ * position.
+ *
+ * Lives in reviewer-core, beside `formatSkillBlocks` and for the identical
+ * reason: the studio server and the CI runner must apply ONE trust rule, and a
+ * divergence here is a prompt-injection hole rather than a cosmetic bug.
+ */
+export function formatSpecBlocks(docs: SpecDoc[]): string {
+  return docs
+    .map((d) => `### ${d.path}\n${wrapUntrusted(`spec:${d.path}`, d.content)}`)
+    .join('\n\n');
+}
+
 /** Cap the PR description so a huge author body can't blow the token budget. */
 const MAX_PR_DESCRIPTION_CHARS = 4000;
 
@@ -135,8 +181,13 @@ export interface PromptParts {
   skills?: string[];
   /** Relevant memory items (trusted, curated). */
   memory?: string[];
-  /** Project-context spec chunks (untrusted content). */
-  specs?: string[];
+  /**
+   * Project-context documents attached to the agent (and to its enabled
+   * skills), in attachment order. Untrusted content — each is delimiter-wrapped
+   * and labelled with its own repo-relative path by `formatSpecBlocks`.
+   * Empty/undefined → the `## Project context` section is omitted entirely.
+   */
+  specs?: SpecDoc[];
   /**
    * Repo skeleton / map (T3): top-ranked symbols by signature, token-budgeted.
    * Untrusted (derived from repo code) — delimiter-wrapped. Rendered before
@@ -190,9 +241,7 @@ export function assemblePrompt(parts: PromptParts): AssembledPrompt {
       ? parts.memory.map((m) => `- ${m}`).join('\n')
       : undefined;
   const specsBlock =
-    parts.specs && parts.specs.length > 0
-      ? parts.specs.map((s, i) => wrapUntrusted(`spec-${i}`, s)).join('\n\n')
-      : undefined;
+    parts.specs && parts.specs.length > 0 ? formatSpecBlocks(parts.specs) : undefined;
 
   const prDescription =
     parts.prDescription && parts.prDescription.trim().length > 0

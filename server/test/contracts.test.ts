@@ -168,6 +168,52 @@ describe('AI contracts parse fixtures', () => {
     });
     expect(trace.tool_calls).toHaveLength(1);
   });
+
+  // SPEC-01: this EXACT pre-existing literal must keep parsing unchanged — it
+  // has no `specs_detail`/`specs_tokens` key at all, matching every trace
+  // persisted before SPEC-01 shipped. `run_traces.trace` is a frozen jsonb
+  // snapshot (server/INSIGHTS.md, 2026-06-24), so a historical trace can never
+  // be re-derived to gain the new keys — the schema must keep accepting their
+  // absence forever.
+  it('RunTrace — a pre-SPEC-01 trace with no specs_detail/specs_tokens still parses', () => {
+    const trace = RunTrace.parse({
+      config: { agent: 'Security Reviewer', version: 'v7', model: 'gpt-4.1', pr: 482, source: 'local' },
+      stats: { duration_ms: 8200, tokens_in: 14820, tokens_out: 1240, cost_usd: 0.06, findings: 3, grounding: '3/3 passed' },
+      prompt_assembly: { system: 's', user: 'u' },
+      tool_calls: [],
+      raw_output: '{}',
+      memory_pulled: [],
+      specs_read: ['specs/security-baseline.md'],
+      log: [{ t: '00.00', kind: 'info', msg: 'started' }],
+    });
+    expect(trace.specs_detail ?? null).toBeNull();
+    expect(trace.specs_tokens ?? null).toBeNull();
+  });
+
+  // SPEC-01: a new-shape trace exercising specs_detail (the used/missing
+  // ledger) and specs_tokens (the block's total token size) — AC-23/AC-24.
+  it('RunTrace — specs_detail/specs_tokens (SPEC-01 ledger)', () => {
+    const trace = RunTrace.parse({
+      config: { agent: 'Context Reviewer', version: '1', model: 'gpt-4.1', pr: 482, source: 'local' },
+      stats: { duration_ms: 4000, tokens_in: 5000, tokens_out: 300, cost_usd: 0.02, findings: 0, grounding: '0/0 passed' },
+      prompt_assembly: { system: 's', user: 'u', specs: '### docs/architecture.md\n<untrusted source="spec:docs/architecture.md">…</untrusted>' },
+      tool_calls: [],
+      raw_output: '{}',
+      memory_pulled: [],
+      specs_read: ['docs/architecture.md'],
+      specs_detail: [
+        { path: 'docs/architecture.md', status: 'used', reason: null, tokens: 42 },
+        { path: 'docs/vanished.md', status: 'missing', reason: 'not_in_clone', tokens: 0 },
+      ],
+      specs_tokens: 42,
+      log: [],
+    });
+    expect(trace.specs_detail).toHaveLength(2);
+    expect(trace.specs_detail?.[0]?.status).toBe('used');
+    expect(trace.specs_detail?.[1]?.status).toBe('missing');
+    expect(trace.specs_detail?.[1]?.reason).toBe('not_in_clone');
+    expect(trace.specs_tokens).toBe(42);
+  });
 });
 
 describe('platform DTOs', () => {

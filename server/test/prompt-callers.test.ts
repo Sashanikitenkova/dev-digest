@@ -17,7 +17,9 @@ const COMMON = {
   system: 'You are a reviewer.',
   skills: ['## skill\nDetect X'],
   memory: ['Do not flag try/catch around JSON.parse'],
-  specs: ['# Security baseline\nNo secrets in code.'],
+  // SPEC-01: specs are { path, content } pairs, not bare strings — the path
+  // becomes both the `### <path>` heading and the untrusted delimiter label.
+  specs: [{ path: 'specs/security-baseline.md', content: '# Security baseline\nNo secrets in code.' }],
   diff: '@@ -1 +1 @@\n+stripeKey',
   task: "Review PR #482 'rate limit'",
 } as const;

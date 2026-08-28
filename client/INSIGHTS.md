@@ -54,6 +54,93 @@ edit. Any future "create blank X" button should check the server's `min(1)`
 constraints first. Evidence:
 `client/src/app/skills/_components/SkillsListView/SkillsListView.tsx:44`.
 
+### 2026-08-28 — [Mistake] A render-phase sync sentinel keyed on OBJECT IDENTITY discards in-flight user input
+
+`ContextFilesPicker` copied `SkillsTab`'s `syncedFrom` pattern but compared the
+memoized rows by identity: `if (syncedFrom !== serverRows) setRows(serverRows)`.
+Ticking a checkbox fires a PUT and invalidates the listing to refresh its
+`used_by_agents` counts; that refetch returns a NEW response object while the
+attachment prop still holds the pre-toggle set, so the sentinel reset local
+state and the checkbox silently unticked itself. `SkillsTab` never hit this
+because its checkbox reads `row.link.enabled` straight from server data and only
+ORDER is mirrored locally — the moment a mirror also holds a value the user can
+change, identity comparison is wrong. Fix: compare a value SIGNATURE of exactly
+what the rows derive from (attached paths + discovered paths), deliberately
+excluding counts, so a refetch that moves only a count changes nothing. Evidence:
+`client/src/components/ContextFilesPicker/ContextFilesPicker.tsx` (`signature`),
+regression test "does not discard a just-ticked checkbox when the listing comes back".
+
+### 2026-08-28 — [Context] A component tested only with `baseProps()` rendered once cannot catch a state-sync bug
+
+The picker had 10 green tests and still shipped the defect above. Every one of
+them built props once and rendered once, so the component never saw a SECOND
+render with changed props — which is the only situation a sync sentinel exists
+for. Testing a component that mirrors server state into local state requires
+`rerender` with a changed prop, and the check that matters is whether local edits
+survive it. Corollary worth remembering: a regression test that passes against
+the unfixed code proves nothing — revert the fix and watch it fail before
+trusting it. Evidence:
+`client/src/components/ContextFilesPicker/ContextFilesPicker.test.tsx`.
+
+### 2026-08-28 — [Mistake] A route's `?tab=` whitelist duplicated as a literal made a shipped tab permanently unreachable
+
+`agents/[id]/page.tsx` carried its own `const VALID_TABS = ["config", "skills"]`
+and rejects an unknown `?tab=` by falling back to `config`. Adding `context` to
+`AgentEditor/constants.ts` `TABS` therefore rendered the tab BUTTON but never the
+pane: the click set `?tab=context` and the very next render threw it away. The
+symptom reads as "the tab does nothing", which sends you hunting in the tab's own
+component — the wrong place entirely. `SkillEditor` never had the bug because it
+derives `export const VALID_TABS = TABS.map((t) => t.key)` and the page imports
+it. The agent editor now does the same. When a route gates a URL param against a
+list, derive that list from the single declaration; two hand-maintained copies of
+the same set will drift the first time someone extends one.
+Evidence: `client/src/app/agents/[id]/_components/AgentEditor/constants.ts`,
+`client/src/app/agents/[id]/page.tsx`.
+
+### 2026-08-28 — [Context] Testing an editor component with `tab` as a prop cannot see the route's tab gate
+
+`AgentEditor.test.tsx` mounted `<AgentEditor tab="config" />` directly, so it
+exercised the switch INSIDE the editor and never the page's URL→tab whitelist
+that decides which value the editor is handed. The unreachable-tab bug above sat
+under a green suite for that reason. Cheapest cover, short of a page test this
+client has none of: assert `TABS.every(t => VALID_TABS.includes(t.key))` in the
+editor's own suite — it fails the moment the two lists disagree and needs no
+App Router mocks. Evidence:
+`client/src/app/agents/[id]/_components/AgentEditor/AgentEditor.test.tsx`
+("every tab is routable").
+
+### 2026-08-28 — [Mistake] Re-deriving a list that GROUPS selected items moves the row the user just clicked
+
+`ContextFilesPicker` built rows with `toRows` — attached documents first, the
+rest alphabetically — and re-derived them whenever the attached set changed.
+Correct on a fresh mount, wrong mid-interaction: ticking the third row moved
+that document to index 0 and shifted everything below it down, so the checkmark
+appeared on row 1 and a different document sat under the cursor. The user
+reported it as "I choose one document and it chooses another", which sends you
+looking for an index/identity bug in the click handler — there wasn't one; the
+click was right and the list moved. The optimistic-cache change made it
+immediate rather than causing it: before that, the regroup waited for the server
+response. Fix: `mergeRows(prev, files, attached)` reconciles IN PLACE once rows
+exist — flags update, vanished rows drop, new files append at the end — and
+`toRows` grouping applies only on first mount. Any list that both groups by a
+user-toggleable property and re-derives on change has this bug. Evidence:
+`client/src/components/ContextFilesPicker/helpers.ts` (`mergeRows`), regression
+test "checks the row that was clicked, and leaves the order alone".
+
+### 2026-08-28 — [Pattern] Render the `ApiError`, not a euphemism for it
+
+Both Context tabs mapped every save failure to one fixed sentence
+("Couldn't save the change"), so a 404, a 422 and an unreachable API were
+indistinguishable on screen — and un-diagnosable from a screenshot. `ApiError`
+already carries `status`, `code` and the server's message, and its network
+branch produces "Cannot reach the DevDigest engine…", which is precisely the
+information the generic copy discarded. The tabs now render the real message
+plus the status, keeping the generic sentence only as a fallback for a
+non-`ApiError` throw. Worth copying to any surface whose failure a user is
+expected to report back. Evidence:
+`client/src/app/agents/[id]/_components/AgentEditor/_components/ContextTab/ContextTab.tsx`
+(`saveErrorText`), `client/src/lib/api.ts:8-19`.
+
 ## Codebase Patterns
 
 ### 2026-06-24 — [Decision] One magnitude-adaptive `formatCost`, not a fixed precision per surface
@@ -108,8 +195,44 @@ the word "partial" was the alternative and is exactly what the structured field
 exists to avoid. Evidence:
 `client/src/app/repos/[repoId]/pulls/[number]/_components/BlastRadiusPanel/BlastRadiusPanel.tsx:186-200`.
 
+### 2026-08-28 — [Decision] Project Context took `g x`, and the g-chord namespace in vendored `nav.ts` is nearly exhausted
+
+`p`/`s`/`a`/`c` are taken across `NAV` and `,` by `SETTINGS_ITEM`, so Project
+Context has no mnemonic initial available; `g d` was rejected because a bare `d`
+is already "Dismiss finding" in the findings shortcuts. `g x` ("conteXt") was
+chosen. Two things a future nav addition should know: adding an item is a
+TWO-place edit — the `NAV` group and the `SHORTCUTS` display list, which
+duplicates every chord — and this is the second deliberate exception to the
+do-not-touch rule on vendored `nav.ts`, after Conventions (2026-07-20), so a
+resync against `@devdigest/ui` must preserve both. Evidence:
+`client/src/vendor/ui/nav.ts:31`, `:25-54`.
 
 ## Tool & Library Notes
+
+### 2026-08-28 — [Context] `agent-browser` drives the real app locally — use it before theorising about a UI bug
+
+jsdom cannot reproduce anything that depends on real browser event semantics:
+native HTML5 drag suppressing a click, `<label>` activation forwarding, hit
+testing against an icon inside a button. Two plausible-sounding diagnoses in
+one session survived code reading and died on contact with a real browser.
+
+`agent-browser` (the CLI behind `e2e/`) is installed globally and does NOT need
+the e2e harness — point it at the running dev stack:
+
+```
+agent-browser open "http://localhost:3000/skills/<id>?tab=context"
+agent-browser eval 'localStorage.setItem("dd-repo","<repoId>")'   # picker discovers from the ACTIVE repo
+agent-browser click '[role=checkbox]'
+agent-browser eval '(() => [...document.querySelectorAll("[role=checkbox]")].map(b => b.getAttribute("aria-checked")))()'
+```
+
+Two gotchas that cost time: a fresh browser profile has no `dd-repo` in
+localStorage, so the active repo falls back to the first one from the API —
+the seeded `acme/payments-api`, which has no clone and therefore renders
+"0 of 0 attached" rather than the documents you expected. And the API's
+`x-ratelimit-limit` / `x-ratelimit-remaining` response headers are the cheapest
+way to tell whether a running server is the old build and whether a 429 is
+actually in play, without burning the budget to find out.
 
 ### 2026-06-27 — [Pattern] Severity filter as optional prop threaded top-down, not via context
 
@@ -164,8 +287,105 @@ which keeps the helper pure and testable and keeps the key literal next to its
 namespace. Evidence:
 `client/src/app/repos/[repoId]/pulls/[number]/_components/BlastRadiusPanel/BlastGraph.tsx:38-48`.
 
+### 2026-08-28 — [Context] A shared component mounted under TWO i18n namespaces has to own a third
+
+`ContextFilesPicker` renders inside both the agent editor (namespace `agents`)
+and the skill editor (namespace `skills`). Declaring either one compiles but
+throws `MISSING_MESSAGE` in whichever test provider supplies the other, so it
+declares its own `context` namespace for its chrome and takes the caller-specific
+heading and note as `title` / `note` props. This is the general form of the
+2026-07-19 `PromptBlock` entry: that one says a component may only use keys from
+the namespace its tests provide; the rule for a component with N mount points is
+that shared copy needs a namespace of its own and per-caller copy arrives as
+props. Evidence: `client/src/components/ContextFilesPicker/ContextFilesPicker.tsx:54`, `:245`.
 
 ## Recurring Errors & Fixes
+
+### 2026-08-28 — [Pitfall] A `<label>` around a `<button role="checkbox">` fires the handler TWICE
+
+`Checkbox` (vendored kit) wraps its button in a `<label>`, which makes that
+button the label's LABELED CONTROL — so a click bubbles to the label and the
+label re-dispatches a synthetic click back to the button. The handler runs
+twice, against two different renders of `checked`: `onChange(false)` then
+`onChange(true)`. The toggle nets to zero and the box simply refuses to change.
+
+Two things make this expensive to find:
+
+1. **It is environment-dependent.** The HTML spec says a label must NOT forward
+   when the click targets interactive content, but the carve-out is applied
+   inconsistently once the real target is a non-interactive descendant (here,
+   the check icon inside the button). jsdom fires once. The Chrome build behind
+   `agent-browser` fires once. The user's Chrome fired twice. A green test run
+   and a clean browser-driven repro are therefore NOT evidence of absence.
+2. **The symptom names the wrong layer.** "The checkbox does nothing" reads as
+   a state or save bug and sends you to the cache and the API, where nothing is
+   wrong.
+
+What actually found it: a temporary on-screen counter incremented inside the
+toggle handler. It read **+2 per click** in the running app, which converted an
+untestable theory into a fact in one screenshot. Reach for that early when a
+handler-level bug will not reproduce locally — an on-screen counter beats
+another round of reasoning about someone else's browser.
+
+Fix: `e.preventDefault()` in the button's `onClick` — label forwarding is the
+click's DEFAULT ACTION, so cancelling the event suppresses the second dispatch;
+harmless on `type="button"`. Plus `pointerEvents: "none"` on the check icon so
+the button is the target in both states. Both live in the vendored
+`client/src/vendor/ui/kit/Checkbox.tsx` and are DELIBERATE edits to keep across
+a resync (same standing as the Conventions entry in `nav.ts`). Note this
+stacked on top of [the `draggable` row bug](#) below — one checkbox, two
+independent causes; fixing the first only exposed the second.
+
+### 2026-08-28 — [Pitfall] One write per click + a shared rate limit = a checkbox that unticks itself
+
+The context picker fired one PUT per checkbox. The API's rate limit is global
+and per IP, the whole studio is one localhost IP, and the pollers spend most of
+the budget before the user clicks anything — so a burst of ticks came back
+`429`, the optimistic write rolled back, and the boxes emptied. The symptom is
+indistinguishable from a broken checkbox, which is why it reads as a state race
+and sends you to the cache layer, where the bug is not.
+
+Three properties fix it, and they are separable:
+1. **Debounce the NETWORK, never the UI.** The cache is written on the click;
+   only the request waits (~400 ms). Coalescing is safe here only because the
+   endpoint is a whole-set replace — last write wins by construction.
+2. **Roll back to the pre-BURST value.** Once writes coalesce, the "previous"
+   captured per-request is itself optimistic; rolling back to it restores a
+   state that was never saved. Keep the baseline from the start of the burst.
+3. **Retry 429/5xx, and invalidate on terminal failure.** Not invalidating the
+   attachment key is right on the SUCCESS path (a stale response would beat the
+   optimistic write) and wrong on the error path, where nothing optimistic is
+   left to protect and the alternative is a list that lies about what is stored.
+
+Also flush the pending write on unmount — an author who ticks a box and
+immediately leaves the tab has still made the change. Evidence:
+`client/src/lib/hooks/context.ts`, `client/src/lib/hooks/context.test.ts`.
+
+### 2026-08-28 — [Pitfall] A `draggable` row eats the clicks on its own checkbox
+
+Both drag-reorder lists (`ContextFilesPicker`, `SkillsTab`) put
+`draggable={!filtering}` on the whole ROW. A `draggable` ancestor makes the
+browser start a native HTML5 drag on the first `mousemove` after `mousedown`,
+and a drag that starts dispatches NO `click` — so a checkbox pressed with a
+pixel of pointer drift silently did nothing, and drift that crossed into the
+next row fired `onDrop` and REORDERED the list instead of ticking the box. The
+user-visible symptom is "the checkbox only works sometimes", which reads as a
+state race and sends you to the mutation/cache layer, where the bug is not.
+
+Fix: arm the drag from the handle. `draggable={!filtering && dragArmed === i}`,
+the ☰ handle sets `dragArmed` on `mouseDown`, and a `window` `mouseup`/`dragend`
+listener clears it so a press that wanders off the handle cannot leave a row
+armed. `mousedown` is discrete, so React flushes it synchronously and the
+attribute is `true` before the first `mousemove` — no gesture is lost. While
+there, `dragstart` must also call `dataTransfer.setData(...)`: Firefox refuses
+to start a drag that sets no data, so reordering never worked there at all.
+
+jsdom CANNOT reproduce this — it dispatches `click` directly and never
+simulates a native drag — which is why 26 green picker tests sat on top of a
+broken checkbox. Pin the DOM contract instead: at rest, no row is
+`draggable="true"`. Evidence:
+`client/src/components/ContextFilesPicker/ContextFilesPicker.tsx:237`,
+`client/src/app/agents/[id]/_components/AgentEditor/_components/SkillsTab/SkillsTab.tsx`.
 
 ### 2026-08-13 — [Pitfall] Two `setParam` calls in one handler silently drop the first
 

@@ -1,24 +1,39 @@
 {
   "title": "Project Context",
-  "chunks": "{count} chunks",
-  "reindex": "Re-index",
-  "indexing": "Indexing…",
-  "resync": "Resync",
-  "resyncing": "Resyncing…",
-  "indexStatus": "Index status: {status}",
-  "loadError": "Couldn’t load specs",
-  "kb": "{kb}kb",
+  "loadError": "Couldn’t load project context",
   "empty": {
-    "title": "No spec files yet",
-    "body": "Drop your PRDs, tech specs, and acceptance criteria under .devdigest/specs/. Every agent and the PR brief read them as grounding context."
+    "title": "No documents found",
+    "body": "Project context is read from the repository itself. Add markdown documents under {roots} and commit them — every review reads them fresh from the clone, so there is nothing to upload or re-index here."
   },
-  "mode": {
-    "preview": "preview",
-    "edit": "edit"
+  "notCloned": {
+    "title": "Repository not cloned yet",
+    "body": "Documents are discovered by walking the clone. Sync this repository first, then its project context appears here."
   },
-  "editor": {
-    "loadError": "Couldn’t load spec",
-    "save": "Save",
-    "saving": "Saving…"
+  "preview": {
+    "subtitle": "Read-only — edit this document in the repository",
+    "loading": "Loading document…",
+    "loadError": "Couldn’t load this document"
+  },
+  "picker": {
+    "attachedCount": "{attached} of {total} attached",
+    "filterPlaceholder": "Filter by path…",
+    "noMatch": "No document matches that filter.",
+    "tokens": "≈ {count, number} tokens",
+    "notFound": "not in repo",
+    "preview": "Preview",
+    "moveUp": "Move {path} up",
+    "moveDown": "Move {path} down",
+    "footer": "{files, plural, =1 {# document} other {# documents}} attached · ≈ {tokens, number} tokens",
+    "tokenWarning": "These documents add roughly {tokens, number} tokens to every review this runs. Nothing is truncated — but a very large project context costs time and money on each run, so consider attaching only the documents this agent actually needs."
+  },
+  "page": {
+    "crumbWorkspace": "Workspace",
+    "headingPrefix": "Project context for ",
+    "repoFallback": "no repository",
+    "subtitle": "Markdown documents discovered under {roots} in this repository's clone. Read-only — edit them in the repository.",
+    "noRepo": "Select a repository to see its project context.",
+    "usedBy": "Used by {count, plural, =1 {# agent} other {# agents}}",
+    "selectHint": "Select a document to read it.",
+    "footer": "{files, plural, =1 {# document} other {# documents}} · ≈ {tokens, number} tokens"
   }
 }

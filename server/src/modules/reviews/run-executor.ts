@@ -1,11 +1,14 @@
 import type { Container } from '../../platform/container.js';
-import type { Provider, Review, RunTrace, UnifiedDiff } from '@devdigest/shared';
-import type { IntentForPrompt } from '@devdigest/reviewer-core';
+import type { Provider, Review, RunTrace, SpecRead, UnifiedDiff } from '@devdigest/shared';
+import type { IntentForPrompt, SpecDoc } from '@devdigest/reviewer-core';
 import { reviewPullRequest, countBlockers, formatSkillBlocks } from '@devdigest/reviewer-core';
 import { RunLogger } from '../../platform/run-logger.js';
+import { approxTokens } from '../../adapters/tokenizer/index.js';
 import * as schema from '../../db/schema.js';
 import type { AgentRow } from '../../db/rows.js';
 import { IntentService } from '../intent/service.js';
+import { ContextService } from '../context/service.js';
+import { safeContextPath } from '../context/helpers.js';
 import { traceMeta } from '../intent/helpers.js';
 import type { PrIntentRow } from '../intent/repository.js';
 import type { ReviewRepository, FindingRow, PullRow, ReviewRow } from './repository.js';
@@ -185,6 +188,9 @@ export class ReviewRunExecutor {
     // Hoisted out of the try so the failure-path trace below can report the
     // skills that WERE assembled, instead of a hardcoded null.
     let skillBlocks: string[] = [];
+    // Same reason: a run that fails AFTER the documents were read should still
+    // report which ones it read. Empty ledger = the failure happened first.
+    let specLedger: SpecRead[] = [];
 
     try {
       // Resolve the agent's LLM provider. (container.llm throws if the provider
@@ -221,6 +227,13 @@ export class ReviewRunExecutor {
       // a skills lookup failure must not fail the review.
       skillBlocks = await this.buildSkillBlocks(agent, runLog);
 
+      // SPEC-01 — project-context documents attached to the agent and to its
+      // enabled skills, read fresh off the clone. Best-effort like every other
+      // enrichment: a lookup or read failure logs and the prompt reverts to its
+      // pre-SPEC-01 shape rather than failing the review.
+      const specDocs = await this.buildSpecDocs(agent, repo, runLog);
+      specLedger = specDocs.ledger;
+
       // Numbered so the Live Log shows the two calls as one sequence: the cheap
       // classifier above, the review model here.
       runLog.tool(`LLM call 2/2 — review (${agent.provider}/${agent.model})`);
@@ -246,6 +259,11 @@ export class ReviewRunExecutor {
         // no blocks → assembly.skills stays null → the trace drawer hides the
         // `Skills / rules` section entirely.
         ...(skillBlocks.length ? { skills: skillBlocks } : {}),
+        // SPEC-01 — attached project-context documents, each labelled with its
+        // own repo path. Same omit-when-empty contract: no documents → the
+        // `## Project context` section is absent and the prompt is
+        // byte-identical to a run with nothing attached.
+        ...(specDocs.docs.length ? { specs: specDocs.docs } : {}),
         // PR author's description/body — untrusted; assemblePrompt wraps +
         // truncates it. Omitted when the PR has no body.
         ...(pull.body ? { prDescription: pull.body } : {}),
@@ -346,7 +364,12 @@ export class ReviewRunExecutor {
         ],
         raw_output: outcome.raw,
         memory_pulled: [],
-        specs_read: [],
+        // Derived from the ledger, never a literal: `specs_read` was hardcoded
+        // to `[]` for the whole life of this file, which made "no document was
+        // read" and "the feature does not exist" indistinguishable in a trace.
+        specs_read: specLedger.filter((e) => e.status === 'used').map((e) => e.path),
+        specs_detail: specLedger,
+        specs_tokens: specLedger.reduce((sum, e) => sum + e.tokens, 0),
         // Persisted log = the run's FULL event buffer (incl. shared pre-work:
         // diff load + intent), not just events recorded inside this method.
         log: runLog.logFor(runId),
@@ -378,7 +401,15 @@ export class ReviewRunExecutor {
       await this.repo
         .saveRunTrace(
           runId,
-          this.traceFromBuffer(runId, pull, agent, '0/0 passed', Date.now() - start, skillBlocks),
+          this.traceFromBuffer(
+            runId,
+            pull,
+            agent,
+            '0/0 passed',
+            Date.now() - start,
+            skillBlocks,
+            specLedger,
+          ),
         )
         .catch(() => undefined);
       this.container.runBus.complete(runId);
@@ -435,6 +466,97 @@ export class ReviewRunExecutor {
         (untrusted > 0 ? ` (${untrusted} untrusted, delimiter-wrapped)` : ''),
     );
     return blocks;
+  }
+
+  /**
+   * SPEC-01 — resolve the agent's project-context documents into prompt blocks,
+   * reading each one FRESH off the clone, and record what happened to every one
+   * of them.
+   *
+   * Modelled on `buildSkillBlocks`: best-effort by contract, returns an empty
+   * result on any failure, and NEVER fails a review. A document the author
+   * attached but that is missing from the clone is a reason to tell them so in
+   * the Live Log and the trace — not a reason to abandon the review.
+   *
+   * WHY THE READ IS SAFE WITHOUT A CHECKOUT (AC-16). `container.git.readFile`
+   * reads the clone's WORKING TREE, and nothing on the review path ever moves
+   * it off the default branch: `fetchPullHead` only creates a local `pr-<n>`
+   * ref, `diff()` works from `base...head` refs, and `sync()` is
+   * `reset --hard origin/<branch>`. So these documents are the repository's
+   * committed rules as of the last sync — NOT whatever the PR under review
+   * happens to say they are, which is exactly what makes them trustworthy
+   * enough to state as project context. If anyone ever introduces a
+   * `git checkout` of the PR head on this path, a PR could rewrite the rules it
+   * is judged by in the same diff, and this read must be re-pinned to the
+   * default branch explicitly.
+   *
+   * Each path is re-validated with `safeContextPath` immediately before the
+   * read even though it was validated on write. That is deliberate: the gate
+   * belongs at the dangerous operation (the intent module does the same at
+   * `service.ts:340-342`), because `SimpleGitClient.readFile` joins onto the
+   * clone directory with no containment check of its own, and a row could have
+   * been written before a future rule change.
+   *
+   * NO TRUNCATION anywhere. A document is used whole or reported missing; a
+   * silently half-read rule is worse than an absent one.
+   */
+  private async buildSpecDocs(
+    agent: AgentRow,
+    repo: typeof schema.repos.$inferSelect,
+    runLog: RunLogger,
+  ): Promise<{ docs: SpecDoc[]; ledger: SpecRead[] }> {
+    let paths: string[];
+    try {
+      paths = await new ContextService(this.container).resolveForRun(agent.id);
+    } catch (err) {
+      runLog.info(`project context: lookup failed — ${(err as Error).message}`);
+      return { docs: [], ledger: [] };
+    }
+    if (paths.length === 0) return { docs: [], ledger: [] };
+
+    const docs: SpecDoc[] = [];
+    const ledger: SpecRead[] = [];
+
+    for (const path of paths) {
+      const safe = safeContextPath(path);
+      if (!safe) {
+        ledger.push({ path, status: 'missing', reason: 'unsafe_path', tokens: 0 });
+        runLog.info(`project context: "${path}" rejected as unsafe and not read`);
+        continue;
+      }
+      let content: string;
+      try {
+        content = await this.container.git.readFile(
+          { owner: repo.owner, name: repo.name },
+          safe,
+        );
+      } catch {
+        ledger.push({ path: safe, status: 'missing', reason: 'not_in_clone', tokens: 0 });
+        runLog.info(`project context: "${safe}" is attached but not present in the clone`);
+        continue;
+      }
+      // An empty read is "no usable document", not a document that says
+      // nothing — and on some GitClient implementations it is what a clone miss
+      // looks like. Either way the model is never handed a blank file and told
+      // it is the project's rules.
+      if (content.trim().length === 0) {
+        ledger.push({ path: safe, status: 'missing', reason: 'empty_file', tokens: 0 });
+        runLog.info(`project context: "${safe}" is attached but empty in the clone`);
+        continue;
+      }
+      docs.push({ path: safe, content });
+      ledger.push({ path: safe, status: 'used', reason: null, tokens: approxTokens(content) });
+    }
+
+    const used = ledger.filter((e) => e.status === 'used');
+    const tokens = used.reduce((sum, e) => sum + e.tokens, 0);
+    const missing = ledger.length - used.length;
+    runLog.info(
+      `project context: ${used.length} of ${ledger.length} attached document(s) injected ` +
+        `(~${tokens} tokens)` +
+        (missing > 0 ? ` — ${missing} unavailable, see above` : ''),
+    );
+    return { docs, ledger };
   }
 
   /**
@@ -542,6 +664,13 @@ export class ReviewRunExecutor {
      * matching assemblePrompt's omit-when-empty contract.
      */
     skillBlocks: string[] = [],
+    /**
+     * The project-context read ledger, if the run got that far. Reported on the
+     * failure path for the same reason as `skillBlocks`: a run that failed in
+     * the model call still read those documents, and hiding that makes the
+     * failure harder to explain.
+     */
+    specLedger: SpecRead[] = [],
   ): RunTrace {
     return {
       config: {
@@ -563,7 +692,9 @@ export class ReviewRunExecutor {
       tool_calls: [],
       raw_output: '',
       memory_pulled: [],
-      specs_read: [],
+      specs_read: specLedger.filter((e) => e.status === 'used').map((e) => e.path),
+      specs_detail: specLedger,
+      specs_tokens: specLedger.reduce((sum, e) => sum + e.tokens, 0),
       log: this.container.runBus.buffer(runId).map((e) => ({ t: e.t, kind: e.kind, msg: e.msg })),
     };
   }

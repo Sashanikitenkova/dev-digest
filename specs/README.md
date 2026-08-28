@@ -36,7 +36,6 @@ where it is, as the record of what was decided and when.
 
 ## Index
 
-_Nothing added yet._
-
 | Spec | Title | Created | Status | Scope |
 |---|---|---|---|---|
+| [SPEC-01](SPEC-01-2026-08-26-project-context-folder.md) | Project Context Folder | 2026-08-26 | draft | `server` · `client` · `reviewer-core` |
