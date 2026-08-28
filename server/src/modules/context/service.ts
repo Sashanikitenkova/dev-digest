@@ -1,13 +1,30 @@
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { readFile } from 'node:fs/promises';
-import type { ContextListing, SpecFile, SpecFileContent } from '@devdigest/shared';
+import { formatSpecSection, type SpecDoc } from '@devdigest/reviewer-core';
+import type {
+  ContextListing,
+  ContextSerializationPreview,
+  ContextSerializedDoc,
+  SpecFile,
+  SpecFileContent,
+} from '@devdigest/shared';
 import type { Container } from '../../platform/container.js';
 import { NotFoundError, ValidationError } from '../../platform/errors.js';
 import { walkClone } from '../repo-intel/pipeline/walk.js';
 import { ContextRepository, type ContextOwnerKind } from './repository.js';
 import { CONTEXT_EXTENSIONS } from './constants.js';
 import { contextTokens, documentType, mergeAttachments, safeContextPath } from './helpers.js';
+
+/**
+ * Stands in for a document body in the `SERIALIZES AS` panel.
+ *
+ * Deliberately not valid markdown-looking content: it must read as "something
+ * was removed here", never as the document's actual first line.
+ */
+function elidedBody(tokens: number): string {
+  return `[body elided — ${tokens.toLocaleString('en-US')} tokens read from the clone at run time]`;
+}
 
 /**
  * Project-context application service (SPEC-01).
@@ -163,6 +180,73 @@ export class ContextService {
     }
 
     return this.repo.replace(kind, ownerId, safe);
+  }
+
+  /**
+   * What this owner's attachments become in the prompt — the `SERIALIZES AS`
+   * panel behind the editor's document list.
+   *
+   * The block is built by reviewer-core's own `formatSpecSection`, with each
+   * document's BODY swapped for a one-line placeholder. That is the whole point
+   * of routing through the real function rather than rendering markdown here:
+   * the heading, the `### <path>` headings, their order and the
+   * `<untrusted source="spec:<path>">` delimiters are the ones a run will
+   * actually emit, so the panel cannot drift from the assembler. It already did
+   * once on paper — SPEC-01's design review caught mockup 4 promising
+   * `## Project specifications`.
+   *
+   * Each document is still READ, because "what will be sent" has to account for
+   * an attachment that no longer exists in the clone. Missing ones are left out
+   * of the block (nothing unreadable reaches a model) but reported in the
+   * ledger, so a rule the author believes is in force cannot vanish silently —
+   * the same used/missing distinction the run trace makes (AC-20, AC-23).
+   */
+  async previewSerialization(
+    workspaceId: string,
+    kind: ContextOwnerKind,
+    ownerId: string,
+    repoId: string,
+  ): Promise<ContextSerializationPreview> {
+    await this.assertOwner(workspaceId, kind, ownerId);
+    const repo = await this.repo.getRepo(workspaceId, repoId);
+    if (!repo) throw new NotFoundError('Repo not found');
+
+    const paths = await this.repo.list(kind, ownerId);
+    const documents: ContextSerializedDoc[] = [];
+    const docs: SpecDoc[] = [];
+    let total = 0;
+
+    for (const path of paths) {
+      const safe = safeContextPath(path);
+      if (!safe || !repo.clonePath) {
+        documents.push({ path, tokens: 0, status: 'missing', reason: 'not_in_clone' });
+        continue;
+      }
+      let content: string;
+      try {
+        content = await readFile(join(repo.clonePath, safe), 'utf8');
+      } catch {
+        documents.push({ path, tokens: 0, status: 'missing', reason: 'not_in_clone' });
+        continue;
+      }
+      if (content.trim().length === 0) {
+        documents.push({ path, tokens: 0, status: 'missing', reason: 'empty_file' });
+        continue;
+      }
+      const tokens = contextTokens(content);
+      total += tokens;
+      documents.push({ path, tokens, status: 'used' });
+      // The placeholder stands in for the body; everything around it is real.
+      docs.push({ path, content: elidedBody(tokens) });
+    }
+
+    // An empty section is worse than no section — the same rule `assemblePrompt`
+    // applies when it omits the slot entirely (AC-21).
+    return {
+      block: docs.length > 0 ? formatSpecSection(docs) : '',
+      documents,
+      total_tokens: total,
+    };
   }
 
   /**

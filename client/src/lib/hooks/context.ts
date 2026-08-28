@@ -37,7 +37,11 @@
 import React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api";
-import type { ContextListing, SpecFileContent } from "@devdigest/shared";
+import type {
+  ContextListing,
+  ContextSerializationPreview,
+  SpecFileContent,
+} from "@devdigest/shared";
 
 /** `{ paths }` — the shape both attachment endpoints return. */
 export interface ContextAttachments {
@@ -80,9 +84,34 @@ export function useSkillContext(skillId: string | null | undefined) {
   });
 }
 
-// ------------------------------------------------------------------ writes
-
 type OwnerKind = "agent" | "skill";
+
+/**
+ * What an owner's attachments serialize to — the `SERIALIZES AS` panel.
+ *
+ * SERVER-rendered on purpose. The block's heading and delimiters come from
+ * reviewer-core's `formatSpecSection`, which the client cannot import (it is a
+ * server-only tsconfig path alias). Rebuilding the format here would put a
+ * second spelling of the prompt in the codebase, and this exact panel has
+ * already drifted once on paper — SPEC-01's design review caught mockup 4
+ * promising `## Project specifications`.
+ */
+export function useContextPreview(
+  kind: OwnerKind,
+  ownerId: string | null | undefined,
+  repoId: string | null | undefined,
+) {
+  return useQuery({
+    queryKey: ["context-preview", kind, ownerId, repoId],
+    queryFn: () =>
+      api.get<ContextSerializationPreview>(
+        `/${kind}s/${ownerId}/context/preview?repo=${encodeURIComponent(repoId ?? "")}`,
+      ),
+    enabled: !!ownerId && !!repoId,
+  });
+}
+
+// ------------------------------------------------------------------ writes
 
 const CACHE_KEY: Record<OwnerKind, string> = {
   agent: "agent-context",
@@ -167,12 +196,17 @@ function useContextWriter(kind: OwnerKind): ContextWriter {
       // line in the editor — never flashes for a 429 that healed itself.
       void qc.invalidateQueries({ queryKey: key });
     },
-    onSettled: () => {
+    onSettled: (_data, _err, { ownerId }) => {
       // The listing carries a per-document "used by N agents" count that an
       // AGENT write changes. A skill's set cannot move it — that count is
       // direct agent attachments only
       // (server/src/modules/context/repository.ts:countAgentAttachmentsByPath).
       if (kind === "agent") void qc.invalidateQueries({ queryKey: ["context"] });
+      // The serialization panel is derived from what the SERVER stores, so it
+      // refreshes once a write lands rather than tracking the optimistic set.
+      // Invalidating THIS key is safe in a way invalidating the attachment key
+      // is not — nothing optimistic is riding on it (see the header note).
+      void qc.invalidateQueries({ queryKey: ["context-preview", kind, ownerId] });
     },
   });
 

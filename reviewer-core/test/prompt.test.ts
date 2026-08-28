@@ -4,7 +4,7 @@
  * truncation, and ordering (before the diff).
  */
 import { describe, it, expect } from 'vitest';
-import { assemblePrompt } from '../src/prompt.js';
+import { assemblePrompt, formatSpecSection, SPEC_SECTION_HEADING } from '../src/prompt.js';
 
 function userOf(parts: Parameters<typeof assemblePrompt>[0]): string {
   const { messages } = assemblePrompt(parts);
@@ -169,5 +169,44 @@ describe('assemblePrompt — ## Project context (SPEC-01)', () => {
     expect(iFirst).toBeGreaterThan(-1);
     expect(iFirst).toBeLessThan(iSecond);
     expect(iSecond).toBeLessThan(iThird);
+  });
+});
+
+describe('project-context section heading has ONE home', () => {
+  /* The studio's `SERIALIZES AS` panel renders this same section so an author
+     can see what their attachments become. A panel that disagrees with the
+     assembler is worse than no panel, because it is believed — and this one
+     already drifted on paper (SPEC-01 design review row 1: mockup 4 promised
+     `## Project specifications`). These tests pin the two callers to the one
+     constant, so a rename cannot leave the panel lying. */
+
+  const docs = [
+    { path: 'specs/api.md', content: 'never import db/ from api/' },
+    { path: 'docs/architecture.md', content: 'layers go one way' },
+  ];
+
+  it('formatSpecSection leads with the shared heading, then every block in order', () => {
+    const section = formatSpecSection(docs);
+    expect(section.startsWith(`${SPEC_SECTION_HEADING}\n`)).toBe(true);
+    expect(section).toContain('### specs/api.md');
+    expect(section).toContain('### docs/architecture.md');
+    expect(section.indexOf('### specs/api.md')).toBeLessThan(
+      section.indexOf('### docs/architecture.md'),
+    );
+    // Every body stays delimiter-wrapped and labelled with its own path.
+    expect(section).toContain('<untrusted source="spec:specs/api.md">');
+    expect(section).toContain('<untrusted source="spec:docs/architecture.md">');
+  });
+
+  it('assemblePrompt emits the very same heading', () => {
+    const { messages } = assemblePrompt({ diff: 'diff --git a/x b/x', specs: docs });
+    const user = messages.map((m) => m.content).join('\n');
+    expect(user).toContain(`${SPEC_SECTION_HEADING}\n### specs/api.md`);
+  });
+
+  it('omits the section entirely when no document survived', () => {
+    const { messages } = assemblePrompt({ diff: 'diff --git a/x b/x', specs: [] });
+    const user = messages.map((m) => m.content).join('\n');
+    expect(user).not.toContain(SPEC_SECTION_HEADING);
   });
 });

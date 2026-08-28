@@ -24,7 +24,9 @@
     "moveUp": "Move {path} up",
     "moveDown": "Move {path} down",
     "footer": "{files, plural, =1 {# document} other {# documents}} attached · ≈ {tokens, number} tokens",
-    "tokenWarning": "These documents add roughly {tokens, number} tokens to every review this runs. Nothing is truncated — but a very large project context costs time and money on each run, so consider attaching only the documents this agent actually needs."
+    "tokenWarning": "These documents add roughly {tokens, number} tokens to every review this runs. Nothing is truncated — but a very large project context costs time and money on each run, so consider attaching only the documents this agent actually needs.",
+    "serializesAs": "Serializes as",
+    "notSerialized": "{path} is attached but was not read from the clone ({reason}) — it will not reach the model."
   },
   "page": {
     "crumbWorkspace": "Workspace",

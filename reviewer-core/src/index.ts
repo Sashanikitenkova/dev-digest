@@ -17,6 +17,8 @@ export {
   wrapUntrusted,
   formatSkillBlocks,
   formatSpecBlocks,
+  formatSpecSection,
+  SPEC_SECTION_HEADING,
   formatIntentBlock,
   type SkillBlock,
   type SpecDoc,

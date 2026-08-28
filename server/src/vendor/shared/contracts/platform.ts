@@ -307,6 +307,39 @@ export const ContextAttachmentInput = z.object({
 });
 export type ContextAttachmentInput = z.infer<typeof ContextAttachmentInput>;
 
+/**
+ * What an owner's attachments become in the prompt — the studio's
+ * `SERIALIZES AS` panel.
+ *
+ * `block` is rendered by reviewer-core's own `formatSpecSection`, with each
+ * document BODY replaced by a short placeholder. The headings, the order and
+ * the `<untrusted source="spec:<path>">` delimiters are therefore the real
+ * ones; only the content is elided, because the panel exists to show an author
+ * the SHAPE of what they built, not to ship 10k tokens of markdown into an
+ * editor on every keystroke.
+ *
+ * `documents` is the ledger, including attachments that could not be read —
+ * they are absent from `block` (an unreadable document reaches no model) but
+ * must stay visible, or a rule the author believes is in force disappears
+ * silently.
+ */
+export const ContextSerializedDoc = z.object({
+  path: z.string(),
+  tokens: z.number().int(),
+  status: z.enum(['used', 'missing']),
+  /** Why it could not be read: `not_in_clone` | `empty_file`. */
+  reason: z.string().nullish(),
+});
+export type ContextSerializedDoc = z.infer<typeof ContextSerializedDoc>;
+
+export const ContextSerializationPreview = z.object({
+  /** Empty string when nothing could be read — never a bare heading. */
+  block: z.string(),
+  documents: z.array(ContextSerializedDoc),
+  total_tokens: z.number().int(),
+});
+export type ContextSerializationPreview = z.infer<typeof ContextSerializationPreview>;
+
 export const IndexStatus = z.object({
   status: z.enum(['idle', 'cloning', 'parsing', 'embedding', 'done', 'error']),
   pct: z.number().min(0).max(100),

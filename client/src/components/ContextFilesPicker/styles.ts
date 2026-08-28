@@ -82,6 +82,35 @@ export const s = {
     fontSize: 12,
     lineHeight: 1.5,
   } satisfies CSSProperties,
+  /** SERIALIZES AS panel — the literal prompt text, so it reads as code. */
+  serialized: { marginTop: 20 } satisfies CSSProperties,
+  serializedLabel: {
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    color: "var(--text-muted)",
+    marginBottom: 8,
+  } satisfies CSSProperties,
+  serializedBlock: {
+    margin: 0,
+    padding: "12px 14px",
+    borderRadius: 8,
+    border: "1px solid var(--border)",
+    background: "var(--bg-surface)",
+    color: "var(--text-secondary)",
+    fontSize: 12,
+    lineHeight: 1.65,
+    // Wide delimiter lines scroll inside the panel rather than widening the tab.
+    overflowX: "auto",
+    whiteSpace: "pre",
+  } satisfies CSSProperties,
+  serializedMissing: {
+    marginTop: 8,
+    fontSize: 12,
+    lineHeight: 1.6,
+    color: "var(--warn)",
+  } satisfies CSSProperties,
   previewBody: {
     padding: "4px 2px",
     fontSize: 13,

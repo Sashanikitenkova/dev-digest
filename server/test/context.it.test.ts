@@ -106,6 +106,101 @@ d('Project context module (Testcontainers pg + real fs clone)', () => {
     return res.json();
   }
 
+
+  /* AC-17 lives in reviewer-core; this suite proves the SERIALIZES AS panel is
+     fed by that same function rather than by markdown assembled here. The panel
+     drifted once on paper already (SPEC-01 design review row 1: mockup 4
+     promised `## Project specifications`), so what matters is that the heading,
+     the per-document headings, their ORDER and the untrusted delimiters come
+     back exactly as a run would emit them. */
+  it('previews what an attachment set serializes to, with bodies elided', async () => {
+    const a = await appWith();
+    const { repo, clonePath } = await repoWithClone();
+    await writeFileAt(clonePath!, 'specs/api.md', '# API contract\nNever break a public field.');
+    await writeFileAt(clonePath!, 'docs/architecture.md', '# Architecture\napi/ must not import db/.');
+    const skill = await createSkill(a, `serializes-${repoSeq}`);
+
+    // Attachment ORDER is assembly order, so submit the non-alphabetical one.
+    await a.inject({
+      method: 'PUT',
+      url: `/skills/${skill.id}/context`,
+      payload: { paths: ['docs/architecture.md', 'specs/api.md'] },
+    });
+
+    const res = await a.inject({
+      method: 'GET',
+      url: `/skills/${skill.id}/context/preview?repo=${repo.id}`,
+    });
+    expect(res.statusCode).toBe(200);
+    const preview = res.json();
+
+    expect(preview.block.startsWith('## Project context\n')).toBe(true);
+    expect(preview.block).toContain('### docs/architecture.md');
+    expect(preview.block).toContain('### specs/api.md');
+    expect(preview.block.indexOf('### docs/architecture.md')).toBeLessThan(
+      preview.block.indexOf('### specs/api.md'),
+    );
+    // Each body stays inside its own labelled untrusted delimiter (AC-18).
+    expect(preview.block).toContain('<untrusted source="spec:docs/architecture.md">');
+    expect(preview.block).toContain('<untrusted source="spec:specs/api.md">');
+    // Elided: the structure is real, the content is not shipped to the editor.
+    expect(preview.block).toContain('body elided');
+    expect(preview.block).not.toContain('api/ must not import db/.');
+
+    expect(preview.documents).toHaveLength(2);
+    expect(preview.documents.every((d: { status: string }) => d.status === 'used')).toBe(true);
+    expect(preview.total_tokens).toBeGreaterThan(0);
+  });
+
+  it('reports an attachment missing from the clone instead of dropping it silently', async () => {
+    const a = await appWith();
+    const { repo, clonePath } = await repoWithClone();
+    await writeFileAt(clonePath!, 'specs/api.md', '# API contract\nNever break a public field.');
+    await writeFileAt(clonePath!, 'docs/gone.md', '# doomed');
+    const skill = await createSkill(a, `missing-${repoSeq}`);
+    await a.inject({
+      method: 'PUT',
+      url: `/skills/${skill.id}/context`,
+      payload: { paths: ['specs/api.md', 'docs/gone.md'] },
+    });
+
+    // Renamed/deleted in the repo after it was attached (EC-3).
+    await rm(join(clonePath!, 'docs/gone.md'));
+
+    const preview = (
+      await a.inject({
+        method: 'GET',
+        url: `/skills/${skill.id}/context/preview?repo=${repo.id}`,
+      })
+    ).json();
+
+    // Absent from the block — nothing unreadable reaches a model...
+    expect(preview.block).not.toContain('docs/gone.md');
+    expect(preview.block).toContain('### specs/api.md');
+    // ...but still visible in the ledger, with the reason (AC-20/AC-23).
+    const gone = preview.documents.find((d: { path: string }) => d.path === 'docs/gone.md');
+    expect(gone.status).toBe('missing');
+    expect(gone.reason).toBe('not_in_clone');
+  });
+
+  it('returns an empty block rather than a bare heading when nothing is attached', async () => {
+    const a = await appWith();
+    const { repo, clonePath } = await repoWithClone();
+    await writeFileAt(clonePath!, 'specs/api.md', '# API contract');
+    const skill = await createSkill(a, `empty-${repoSeq}`);
+
+    const preview = (
+      await a.inject({
+        method: 'GET',
+        url: `/skills/${skill.id}/context/preview?repo=${repo.id}`,
+      })
+    ).json();
+
+    expect(preview.block).toBe('');
+    expect(preview.documents).toEqual([]);
+    expect(preview.total_tokens).toBe(0);
+  });
+
   it('discovers documents by a live walk over the clone, describing each with path/type/bytes/tokens', async () => {
     const a = await appWith();
     const { repo, clonePath } = await repoWithClone();

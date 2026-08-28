@@ -127,6 +127,29 @@ export function formatSpecBlocks(docs: SpecDoc[]): string {
     .join('\n\n');
 }
 
+/**
+ * The one and only spelling of the project-context section heading.
+ *
+ * It is a constant because a SECOND caller now renders this section: the
+ * studio's `SERIALIZES AS` panel, which shows an author what their attachments
+ * become in the prompt. That panel has already drifted once on paper — SPEC-01's
+ * design review records mockup 4 promising `## Project specifications` while
+ * the assembler emitted `## Project context` — and a panel that disagrees with
+ * the assembler is worse than no panel, because it is believed. Anything that
+ * needs this heading imports it; nothing retypes it.
+ */
+export const SPEC_SECTION_HEADING = '## Project context';
+
+/**
+ * The complete project-context SECTION — heading plus every document block.
+ *
+ * `formatSpecBlocks` renders the bodies alone, which is what `assemblePrompt`
+ * stores in its trace slot; this is what actually reaches the model.
+ */
+export function formatSpecSection(docs: SpecDoc[]): string {
+  return `${SPEC_SECTION_HEADING}\n${formatSpecBlocks(docs)}`;
+}
+
 /** Cap the PR description so a huge author body can't blow the token budget. */
 const MAX_PR_DESCRIPTION_CHARS = 4000;
 
@@ -263,7 +286,7 @@ export function assemblePrompt(parts: PromptParts): AssembledPrompt {
   if (parts.repoMap && parts.repoMap.trim().length > 0) {
     userSections.push(`## Repo skeleton\n${wrapUntrusted('repo-map', parts.repoMap)}`);
   }
-  if (specsBlock) userSections.push(`## Project context\n${specsBlock}`);
+  if (specsBlock) userSections.push(`${SPEC_SECTION_HEADING}\n${specsBlock}`);
   if (parts.callers && parts.callers.trim().length > 0) {
     userSections.push(
       `## Callers of changed symbols\n${wrapUntrusted('callers', parts.callers)}`,

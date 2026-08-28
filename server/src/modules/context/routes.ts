@@ -15,6 +15,7 @@ import { ContextService } from './service.js';
  *   PUT /agents/:id/context          → replace them wholesale
  *   GET /skills/:id/context          → the skill's ordered attachments
  *   PUT /skills/:id/context          → replace them wholesale
+ *   GET /:kind/:id/context/preview   → what those attachments serialize to
  *
  * There is deliberately NO `/context/reindex`: discovery is a live walk with no
  * index behind it, so there is nothing to rebuild. (The dead `IndexStatus`
@@ -27,6 +28,13 @@ import { ContextService } from './service.js';
  */
 
 const FileQuery = z.object({ path: z.string().min(1) });
+
+/**
+ * The preview needs a REPO, because an attachment is stored as a bare
+ * repo-relative path and is deliberately not scoped to one — the clone only
+ * decides what can actually be read right now.
+ */
+const PreviewQuery = z.object({ repo: z.string().min(1) });
 
 export default async function contextRoutes(appBase: FastifyInstance) {
   const app = appBase.withTypeProvider<ZodTypeProvider>();
@@ -62,6 +70,15 @@ export default async function contextRoutes(appBase: FastifyInstance) {
     },
   );
 
+  app.get(
+    '/agents/:id/context/preview',
+    { schema: { params: IdParams, querystring: PreviewQuery } },
+    async (req) => {
+      const { workspaceId } = await getContext(app.container, req);
+      return service.previewSerialization(workspaceId, 'agent', req.params.id, req.query.repo);
+    },
+  );
+
   app.get('/skills/:id/context', { schema: { params: IdParams } }, async (req) => {
     const { workspaceId } = await getContext(app.container, req);
     return { paths: await service.getAttachments(workspaceId, 'skill', req.params.id) };
@@ -75,6 +92,15 @@ export default async function contextRoutes(appBase: FastifyInstance) {
       return {
         paths: await service.setAttachments(workspaceId, 'skill', req.params.id, req.body.paths),
       };
+    },
+  );
+
+  app.get(
+    '/skills/:id/context/preview',
+    { schema: { params: IdParams, querystring: PreviewQuery } },
+    async (req) => {
+      const { workspaceId } = await getContext(app.container, req);
+      return service.previewSerialization(workspaceId, 'skill', req.params.id, req.query.repo);
     },
   );
 }

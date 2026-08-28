@@ -67,6 +67,7 @@ export function ContextTab({ skill }: { skill: Skill }) {
       listingError={listingFailed}
       onRetry={() => void refetchListing()}
       onChange={(paths) => setContext.mutate({ skillId: skill.id, paths })}
+      owner={{ kind: "skill", id: skill.id }}
       title={t("contextTab.heading")}
       note={t("contextTab.caption")}
       errorText={

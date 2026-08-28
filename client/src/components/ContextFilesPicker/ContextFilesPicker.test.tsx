@@ -11,8 +11,10 @@ import messages from "../../../messages/en/context.json";
    (AgentEditor's ContextTab / SkillEditor's ContextTab) would. */
 
 const useContextFile = vi.fn();
+const useContextPreview = vi.fn();
 vi.mock("../../lib/hooks/context", () => ({
   useContextFile: (...args: unknown[]) => useContextFile(...args),
+  useContextPreview: (...args: unknown[]) => useContextPreview(...args),
 }));
 
 import { ContextFilesPicker } from "./ContextFilesPicker";
@@ -21,6 +23,8 @@ afterEach(() => {
   cleanup();
   useContextFile.mockReset();
   useContextFile.mockReturnValue({ data: undefined, isLoading: false, isError: false });
+  useContextPreview.mockReset();
+  useContextPreview.mockReturnValue({ data: undefined });
 });
 
 function renderWithIntl(ui: React.ReactElement) {
@@ -422,5 +426,70 @@ describe("ContextFilesPicker — ticking a box does not move the row", () => {
 
     expect(screen.queryByText("insights/lessons.md")).not.toBeInTheDocument();
     expect(screen.getByText("specs/new-rule.md")).toBeInTheDocument();
+  });
+});
+
+describe("ContextFilesPicker — SERIALIZES AS panel", () => {
+  /* The panel shows what the attachments become in the prompt. Its text is
+     SERVER-rendered from reviewer-core's `formatSpecSection`; the client must
+     never spell the block itself. That is not fussiness — SPEC-01's design
+     review caught this very panel promising `## Project specifications` while
+     the assembler emitted `## Project context`, and a panel that disagrees
+     with the assembler is worse than none, because it is believed. */
+
+  const BLOCK =
+    "## Project context\n" +
+    "### specs/api.md\n" +
+    '<untrusted source="spec:specs/api.md">\n[body elided — 100 tokens]\n</untrusted>';
+
+  it("renders the server's block verbatim", () => {
+    useContextPreview.mockReturnValue({
+      data: {
+        block: BLOCK,
+        documents: [{ path: "specs/api.md", tokens: 100, status: "used" }],
+        total_tokens: 100,
+      },
+    });
+    const { container } = renderWithIntl(
+      <ContextFilesPicker {...baseProps({ owner: { kind: "skill", id: "sk-1" } })} />,
+    );
+    expect(screen.getByText("Serializes as")).toBeInTheDocument();
+    // Byte-for-byte what the server sent — delimiters and newlines included,
+    // not re-rendered as markdown. `getByText` normalises whitespace, which
+    // would let a reformatted block pass, so assert on the node itself.
+    expect(container.querySelector("pre")?.textContent).toBe(BLOCK);
+  });
+
+  it("shows an attached document the clone could not supply, rather than dropping it", () => {
+    useContextPreview.mockReturnValue({
+      data: {
+        block: BLOCK,
+        documents: [
+          { path: "specs/api.md", tokens: 100, status: "used" },
+          { path: "docs/gone.md", tokens: 0, status: "missing", reason: "not_in_clone" },
+        ],
+        total_tokens: 100,
+      },
+    });
+    renderWithIntl(
+      <ContextFilesPicker {...baseProps({ owner: { kind: "skill", id: "sk-1" } })} />,
+    );
+    expect(screen.getByText(/docs\/gone\.md is attached but was not read/)).toBeInTheDocument();
+  });
+
+  it("renders no panel when nothing serializes — never a bare heading", () => {
+    useContextPreview.mockReturnValue({
+      data: { block: "", documents: [], total_tokens: 0 },
+    });
+    renderWithIntl(
+      <ContextFilesPicker {...baseProps({ attached: [], owner: { kind: "skill", id: "sk-1" } })} />,
+    );
+    expect(screen.queryByText("Serializes as")).not.toBeInTheDocument();
+  });
+
+  it("renders no panel for a caller that supplies no owner", () => {
+    renderWithIntl(<ContextFilesPicker {...baseProps()} />);
+    expect(screen.queryByText("Serializes as")).not.toBeInTheDocument();
+    expect(useContextPreview).not.toHaveBeenCalled();
   });
 });

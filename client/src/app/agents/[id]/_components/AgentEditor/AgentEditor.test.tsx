@@ -16,7 +16,7 @@ vi.mock("../../../../../lib/hooks/agents", () => ({
   useProviderModels: () => ({ data: [{ id: "gpt-4.1", provider: "openai" }] }),
 }));
 
-// ContextTab calls three data hooks of its own; stub them at the module
+// ContextTab calls four data hooks of its own; stub them at the module
 // boundary so the tab can be mounted without a query client.
 const setAgentContext = vi.fn(() => ({ mutate: vi.fn(), isError: false, error: null as unknown }));
 vi.mock("../../../../../lib/hooks/context", () => ({
@@ -24,6 +24,9 @@ vi.mock("../../../../../lib/hooks/context", () => ({
   useAgentContext: () => ({ data: { paths: [] }, isError: false }),
   useSetAgentContext: () => setAgentContext(),
   useContextFile: () => ({ data: undefined, isLoading: false, isError: false }),
+  // The SERIALIZES AS panel; undefined data renders nothing, which is what
+  // these tab-routing and save-error tests care about.
+  useContextPreview: () => ({ data: undefined }),
 }));
 
 vi.mock("../../../../../lib/repo-context", () => ({

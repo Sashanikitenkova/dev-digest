@@ -70,6 +70,7 @@ export function ContextTab({ agent }: { agent: Agent }) {
       listingError={listingFailed}
       onRetry={() => void refetchListing()}
       onChange={(paths) => setContext.mutate({ agentId: agent.id, paths })}
+      owner={{ kind: "agent", id: agent.id }}
       title={t("contextTab.heading")}
       note={t("contextTab.caption")}
       errorText={
