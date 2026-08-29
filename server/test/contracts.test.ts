@@ -15,6 +15,10 @@ import {
   Settings,
   Repo,
   PrDetail,
+  PrBrief,
+  Risk,
+  PrRiskBriefRecord,
+  RiskBriefReference,
 } from '@devdigest/shared';
 
 /**
@@ -253,5 +257,94 @@ describe('platform DTOs', () => {
         commits: [],
       }),
     ).not.toThrow();
+  });
+});
+
+/**
+ * SPEC-02's contracts, exercised through the SHARED schema rather than through
+ * the service's own `validateItems`.
+ *
+ * `validateItems` is the runtime allowlist gate and has its own suite; these
+ * assertions cover the half nothing else reaches — the `superRefine` rules that
+ * travel with the contract into the client, where no allowlist exists.
+ */
+describe('SPEC-02 risk-brief contracts', () => {
+  const record = {
+    pr_id: '7f1f2f3a-0000-4000-8000-00000000ab12',
+    what: 'Adds a token-bucket rate limiter to the public API routes.',
+    why: 'Unauthenticated clients were abusing the public endpoints.',
+    risk_level: 'high',
+    risks: [
+      {
+        severity: 'high',
+        summary: 'A live key is committed in plaintext.',
+        reference: { file: 'src/config.ts', line: 11, symbol: null, endpoint: null },
+      },
+    ],
+    review_focus: [
+      {
+        summary: 'Check the limiter returns Retry-After.',
+        reference: { file: 'src/limiter.ts', line: null, symbol: 'consume', endpoint: null },
+      },
+    ],
+    inputs: [{ section: 'blast_radius', status: 'unavailable', reason: 'repo not indexed' }],
+    counts: { risks_proposed: 2, risks_kept: 1, focus_proposed: 1, focus_kept: 1 },
+    head_sha: 'a'.repeat(40),
+    provider: 'openrouter',
+    model: 'deepseek/deepseek-v4-pro',
+    tokens_in: 1414,
+    tokens_out: 2408,
+    cost_usd: 0.00882168,
+    generated_at: '2026-08-29T08:40:01.680Z',
+  };
+
+  it('PrRiskBriefRecord parses a full record, provenance included (AC-19, AC-7)', () => {
+    const parsed = PrRiskBriefRecord.parse(record);
+    expect(parsed.risk_level).toBe('high');
+    expect(parsed.review_focus).toHaveLength(1);
+    // The three fields the plan's own record type originally omitted.
+    expect(parsed.tokens_in).toBe(1414);
+    expect(parsed.tokens_out).toBe(2408);
+    expect(parsed.cost_usd).toBeCloseTo(0.00882168);
+  });
+
+  it('does not reuse PrBrief or Risk for the new shape (AC-21)', () => {
+    // Both names predate this feature and mean something else. If a later edit
+    // collapses them, this fails rather than silently changing what the older
+    // `pr_brief.json` docblock promises.
+    expect(PrBrief).not.toBe(PrRiskBriefRecord);
+    expect(Risk).not.toBe(RiskBriefReference);
+    expect(PrBrief.safeParse(record).success).toBe(false);
+  });
+
+  it('requires at least one non-null, non-empty field (AC-20, EC-22)', () => {
+    expect(RiskBriefReference.safeParse({ file: 'src/a.ts' }).success).toBe(true);
+    expect(RiskBriefReference.safeParse({ symbol: 'consume' }).success).toBe(true);
+    expect(RiskBriefReference.safeParse({ endpoint: 'GET /workspace' }).success).toBe(true);
+
+    for (const degenerate of [{}, { file: null }, { file: '' }, { file: null, symbol: null }]) {
+      const res = RiskBriefReference.safeParse(degenerate);
+      expect(res.success).toBe(false);
+      if (!res.success) {
+        expect(res.error.issues.some((i) => /carries no field/.test(i.message))).toBe(true);
+      }
+    }
+  });
+
+  it('rejects a line with no file (AC-20a)', () => {
+    const res = RiskBriefReference.safeParse({ line: 42 });
+    expect(res.success).toBe(false);
+    if (!res.success) {
+      expect(res.error.issues.some((i) => /line without a file/.test(i.message))).toBe(true);
+    }
+  });
+
+  it('rejects a non-positive line even alongside a valid file (AC-20b)', () => {
+    // A valid field must never rescue an invalid one.
+    const res = RiskBriefReference.safeParse({ file: 'src/a.ts', line: 0 });
+    expect(res.success).toBe(false);
+    if (!res.success) {
+      expect(res.error.issues.some((i) => /positive integer/.test(i.message))).toBe(true);
+    }
   });
 });

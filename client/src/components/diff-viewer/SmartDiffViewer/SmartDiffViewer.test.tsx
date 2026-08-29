@@ -333,3 +333,50 @@ describe("SmartDiffViewer — empty state", () => {
     expect(screen.getByText("No changed files.")).toBeInTheDocument();
   });
 });
+
+describe("SmartDiffViewer — an externally seeded jump (AC-44)", () => {
+  it("scrolls to a file supplied from outside, opening its collapsed group", () => {
+    // `package-lock.json` sits in the boilerplate group, which renders
+    // collapsed. A brief review-focus row pointing there must still land: the
+    // force-open is the half a simple scroll call would miss.
+    renderViewer({ jumpTo: { file: "package-lock.json", line: 26 } });
+    expect(scrollIntoView).toHaveBeenCalled();
+    const boilerplate = screen.getByText("Boilerplate").closest("button");
+    expect(boilerplate).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("opens the file for a reference that carries no line", () => {
+    // A file-only target resolves to line 1, which these fixtures' hunks (from
+    // line 24) do not contain — so there is no line row to scroll to. What the
+    // reader is promised is still delivered: the file, and its group, open.
+    renderViewer({ jumpTo: { file: "package-lock.json", line: null } });
+    const boilerplate = screen.getByText("Boilerplate").closest("button");
+    expect(boilerplate).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("re-scrolls when the SAME target is issued again", () => {
+    const { rerender } = renderViewer({ jumpTo: { file: "src/api/public/index.ts", line: 26 } });
+    const first = scrollIntoView.mock.calls.length;
+    expect(first).toBeGreaterThan(0);
+
+    // The nonce is what makes a repeat land: a reader who clicks the same focus
+    // row twice, having scrolled away, must be taken back. Asserting "more than
+    // before" rather than an exact count — how many elements a single jump
+    // scrolls is a rendering detail, that it scrolls AGAIN is the requirement.
+    rerender(
+      <NextIntlClientProvider locale="en" messages={{ prReview, shell }}>
+        <SmartDiffViewer
+          smartDiff={SMART_DIFF}
+          files={FILES}
+          jumpTo={{ file: "src/api/public/index.ts", line: 26 }}
+        />
+      </NextIntlClientProvider>,
+    );
+    expect(scrollIntoView.mock.calls.length).toBeGreaterThan(first);
+  });
+
+  it("does nothing when no jump target is supplied", () => {
+    renderViewer();
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+});
