@@ -1,5 +1,6 @@
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import { HttpDevDigestApi } from './adapters/http-api.js';
+import { ConfigError, loadConfig, type McpConfig } from './config.js';
 import type { ToolContext } from './ports.js';
 import { createServer } from './server.js';
 
@@ -17,15 +18,26 @@ import { createServer } from './server.js';
  * banner lands on stdout ahead of the first frame.
  */
 
-/** Where the DevDigest API lives. Set by `devdigest.mcp.json`; falls back to the dev default. */
-const apiBaseUrl = process.env['DEVDIGEST_API_BASE'] ?? 'http://localhost:3001';
-
-/** Where the studio lives — used only inside forward-leading error messages. */
-const webBaseUrl = process.env['DEVDIGEST_WEB_BASE'] ?? 'http://localhost:3000';
+/**
+ * Environment is validated here and nowhere else. `loadConfig` throws rather
+ * than exiting so it stays testable; turning that into an exit code is this
+ * file's job, and the report goes to stderr for the same reason as everything
+ * else in this package.
+ */
+let config: McpConfig;
+try {
+  config = loadConfig();
+} catch (error) {
+  if (error instanceof ConfigError) {
+    console.error(`[devdigest-mcp] ${error.message}`);
+    process.exit(1);
+  }
+  throw error;
+}
 
 const ctx: ToolContext = {
-  api: new HttpDevDigestApi({ baseUrl: apiBaseUrl }),
-  webBaseUrl,
+  api: new HttpDevDigestApi({ baseUrl: config.apiBaseUrl }),
+  webBaseUrl: config.webBaseUrl,
 };
 
 // `serveStdio` takes a FACTORY: the opening exchange selects the protocol era
@@ -34,4 +46,4 @@ serveStdio(() => createServer(ctx), {
   onerror: (error) => console.error('[devdigest-mcp] transport error:', error),
 });
 
-console.error(`[devdigest-mcp] ready — DevDigest API at ${apiBaseUrl}`);
+console.error(`[devdigest-mcp] ready — DevDigest API at ${config.apiBaseUrl}`);
