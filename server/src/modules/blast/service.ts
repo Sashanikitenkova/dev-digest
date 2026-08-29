@@ -21,6 +21,9 @@ export interface PrBlast {
   history: PrHistoryItem[];
 }
 
+/** Minimal structured-log sink, satisfied by Fastify's `req.log.debug`. */
+export type BlastLogger = (obj: Record<string, unknown>, msg: string) => void;
+
 export class BlastService {
   private repo: BlastRepository;
 
@@ -28,16 +31,33 @@ export class BlastService {
     this.repo = new BlastRepository(container.db);
   }
 
-  async getForPull(workspaceId: string, prId: string): Promise<PrBlast> {
+  async getForPull(workspaceId: string, prId: string, log?: BlastLogger): Promise<PrBlast> {
     const found = await this.repo.getPullWithRepo(workspaceId, prId);
     if (!found) throw new NotFoundError('Pull request not found');
 
     const paths = await this.repo.changedPaths(prId);
-    const [result, prior] = await Promise.all([
+    // getIndexState never throws (it synthesises a degraded row when the repo
+    // was never indexed), so it needs no separate error handling.
+    const [result, state, prior] = await Promise.all([
       this.container.repoIntel.getBlastRadius(found.repo.id, paths),
+      this.container.repoIntel.getIndexState(found.repo.id),
       this.repo.priorPrsTouching(found.repo.id, prId, paths, MAX_PRIOR_PRS),
     ]);
 
-    return { blast: toBlastRadius(result), history: toHistoryItems(prior) };
+    const blast = toBlastRadius(result, state);
+    // One line, so "this request read the index rather than re-parsing the
+    // repo" is checkable in the logs instead of taken on faith.
+    log?.(
+      {
+        source: 'index',
+        indexStatus: blast.index.status,
+        symbols: blast.changed_symbols.length,
+        callers: result.callers.length,
+        reached: Object.keys(result.reachedFiles ?? {}).length,
+      },
+      'blast radius served',
+    );
+
+    return { blast, history: toHistoryItems(prior) };
   }
 }

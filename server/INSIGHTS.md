@@ -67,6 +67,21 @@ declaring no `body` schema at all. The same trap is already noted from the
 client side in `client/src/lib/api.ts`'s content-type comment. Evidence:
 `server/src/modules/intent/routes.ts:35-44`, `server/src/modules/reviews/routes.ts:32`.
 
+### 2026-08-20 — [Mistake] `getResolvedCallers` inner-joined `file_rank`, so a partial index reported ZERO callers
+
+`pipeline/full.ts` skips its entire T3 block — `replaceEdges`, `replaceFileRank`
+**and** `replaceFileFacts` — behind one `if (!softBudgetReached)`, while still
+writing symbols and references and stamping `status: 'partial'`. An inner join
+on `file_rank` therefore dropped every caller row for such a repo, and the blast
+panel rendered "no downstream callers": a false claim about the *code*, produced
+by a gap in the *index*. Fixed with a `leftJoin` + `coalesce(rank, 0)` — rank 0
+is what the old ripgrep path already used and the rank sort tolerates it. Any
+future query joining `file_rank`, `file_edges` or `file_facts` must assume those
+tables can be empty on a `partial` index. Evidence:
+`server/src/modules/repo-intel/repository.ts:503-540`,
+`server/src/modules/repo-intel/pipeline/full.ts:214`.
+
+
 ## Codebase Patterns
 
 ### 2026-06-24 — [Decision] "Latest review round" needs a shared `ranAt`, not each row's own `defaultNow()`
@@ -171,6 +186,72 @@ endpoint pays for the grouped count. Evidence:
 `server/src/modules/agents/repository.ts:countEnabledSkillsByAgent`,
 `server/src/modules/skills/service.ts:stats`.
 
+### 2026-08-20 — [Context] The import graph is stored importer→imported, so blast must walk it BACKWARDS
+
+`file_edges` rows are `(from_file imports to_file)`, and the only reader before
+this session (`getEdges` → `getCriticalPaths`) builds a forward adjacency map.
+A blast radius needs the opposite question — "who depends on this file" — which
+is why the schema carries `file_edges_repo_to_idx` on `(repo_id, to_file)`. That
+index sat unused for two tiers; nothing filtered on `toFile` anywhere.
+`getImporters` is the intended reader: one indexed query per hop, `BFS_DEPTH`
+hops, visited-set so cycles terminate, seeds excluded so a changed file is never
+its own dependent. Getting the direction wrong yields a plausible-looking map
+that lists the changed file's own dependencies. Evidence:
+`server/src/db/schema/repo-intel.ts:55-68`,
+`server/src/modules/repo-intel/repository.ts:560-620`.
+
+### 2026-08-20 — [Decision] Supersedes the 2026-08-12 `factsByFile` entry — blast no longer has a degraded path
+
+`getBlastRadius` is now index-only: when the flag is off, no state row exists, or
+the status is `degraded`/`failed`, it returns an empty `BlastResult` tagged with
+the real `DegradedReason` instead of falling back to parsing the clone. The
+ripgrep fallback re-read source on the hot path, produced `rank: 0` and no
+`factsByFile`, and was quietly worse than the index it stood in for. The earlier
+entry's *rule* still holds and is now the general one: attribute an endpoint to a
+symbol only on evidence (a caller in that file, or a ≤2-hop reverse-import edge),
+never by smearing the flat union. `factsByFile` is present whenever a map is
+served at all. Evidence: `server/src/modules/repo-intel/service.ts:211-243`,
+`server/src/modules/blast/helpers.ts:20-80`.
+
+### 2026-08-20 — [Decision] A caller cap belongs per-symbol, not on the flat list
+
+`tryPersistentBlast` used to `slice(0, MAX_CALLERS_PER_SYMBOL)` the flat caller
+array, which capped 20 callers TOTAL across every changed symbol despite the
+constant's name — one wide-fan-out symbol starved every other symbol of callers
+it genuinely had. Callers are now grouped by `viaSymbol`, sorted by rank within
+the group, and sliced per group, with the pre-truncation size returned in
+`callerTotals` so the UI can say "showing 20 of 43" instead of presenting a
+truncated list as the whole set. Evidence:
+`server/src/modules/repo-intel/service.ts:310-330`.
+
+
+### 2026-08-20 — [Mistake] Depth-2 endpoint attribution is near-worthless through a barrel file
+
+The first live run of the blast map attributed `GET /health` to a change in
+`reviews/routes.ts`. The path is real — `reviews/routes.ts ← modules/index.ts ←
+app.ts`, and `app.ts` declares `/health` — but a registry/barrel file puts EVERY
+module two hops from the app root, so flat depth-2 attribution converges on
+"every change affects every endpoint". The unit tests could not surface this:
+their graphs are 2-4 synthetic nodes with no barrel. Fixed by carrying the hop
+distance on each attributed endpoint (`AffectedEndpoint`) so the UI collapses
+depth 2 behind a disclosure and MCP puts it in a separate `*_indirect` key —
+walking less far would have lost real impact in repos that have no barrel. Any
+future graph-derived claim in this codebase should carry its distance rather
+than being flattened to a boolean. Evidence:
+`server/src/modules/blast/helpers.ts`,
+`server/src/vendor/shared/contracts/brief.ts` (`AffectedEndpoint`).
+
+### 2026-08-20 — [Context] Verify a graph feature against a REAL index, not just synthetic test graphs
+
+Both blast-radius findings that mattered — the `file_rank` inner join wiping
+callers, and barrel-file attribution noise — were invisible to a green test
+suite and appeared within minutes of querying the running API against a
+318-file index. Synthetic fixtures encode the shape you already imagined. For
+anything reading `file_edges` / `file_rank` / `file_facts`, resync a real repo
+and diff the response by hand before calling it done. Evidence:
+`server/test/repo-intel-importers.it.test.ts` (green throughout both bugs).
+
+
 ## Tool & Library Notes
 
 ### 2026-07-20 — [Context] `getConventionSamples` returns file PATHS, not code
@@ -250,6 +331,20 @@ facts: `pr_intent` rows are persisted, so existing cards keep the old text until
 markdown-style backtick in a new rule is a build error, not a formatting choice.
 Evidence: `server/src/modules/intent/prompt.ts:46-49`,
 `server/src/vendor/shared/contracts/platform.ts:51-57`.
+
+### 2026-08-20 — [Context] Grep `test/` too before calling a shared-contract field safe to add
+
+Adding a required `index` field to the `BlastRadius` contract was cleared by
+grepping `server/src client/src` for `.parse()` call sites — and immediately
+failed `test/contracts.test.ts`, which parses a literal fixture. Server contracts
+are exercised by tests that no `src/` grep will find, and the blast route
+declares no `response` schema, so `tsc` does NOT catch a missing key in a
+`.parse()` argument either. Run the unit suite, not just `pnpm typecheck`, after
+any shared-contract change. Complements the 2026-08-11 `.default([])` entry:
+`.default()` shields a field from this (optional on input), a bare required
+object field does not. Evidence: `server/test/contracts.test.ts:73`,
+`server/src/vendor/shared/contracts/brief.ts:86-118`.
+
 
 ## Session Notes
 

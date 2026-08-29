@@ -82,6 +82,33 @@ than drift. Only Conventions was added — the other items in the design mockups
 (Eval Dashboard, Memory, Multi-Agent Review…) belong to later lessons and were
 deliberately left out. Evidence: `client/src/vendor/ui/nav.ts:33`.
 
+### 2026-08-20 — [Decision] Blast Radius callers link to GitHub, not to the Files-changed tab
+
+A blast caller is an ordinary repo file that usually is NOT part of the PR's
+diff, so the in-app diff viewer has nothing to scroll to — the Smart Diff
+`JumpTarget` mechanism only addresses files present in `pr.files`. Callers use
+`githubBlobUrl(repoFullName, headSha, file, line)` + `MonoLink` instead, the same
+pair `FindingCard` uses, pinned to the PR's head sha so the line number stays
+accurate. Both inputs are nullable, and `MonoLink` renders a non-navigating
+`<button>` when `href` is undefined, so an unloaded repo degrades to plain text
+rather than a dead link. Import from `lib/github-urls`, NOT `lib/routes` — both
+export a `githubBlobUrl` with different signatures. Evidence:
+`client/src/app/repos/[repoId]/pulls/[number]/_components/BlastRadiusPanel/BlastRadiusPanel.tsx:160-172`,
+`client/src/lib/github-urls.ts:24`.
+
+### 2026-08-20 — [Pattern] A partial-data caveat belongs ABOVE the data, never instead of it
+
+Blast Radius has three states, not two: `missing` renders `EmptyState` ("nothing
+indexed"), while `partial`/`failed` render a banner *followed by the full map*.
+The temptation is to reuse the empty state for both, but a partial index has
+produced real callers — hiding them trades one wrong claim ("nothing is
+affected") for another ("we know nothing"). The server makes this renderable by
+sending a structured `blast.index` object; parsing the prose `summary` string for
+the word "partial" was the alternative and is exactly what the structured field
+exists to avoid. Evidence:
+`client/src/app/repos/[repoId]/pulls/[number]/_components/BlastRadiusPanel/BlastRadiusPanel.tsx:186-200`.
+
+
 ## Tool & Library Notes
 
 ### 2026-06-27 — [Pattern] Severity filter as optional prop threaded top-down, not via context
@@ -125,6 +152,18 @@ which were clearly drawn with the component untouched. It now takes a `decimals`
 prop (default `2`, so existing callers are unaffected); pass
 `valuePrefix="" decimals={0}` for counts. Evidence:
 `client/src/app/skills/[id]/_components/SkillEditor/_components/StatsTab/StatsTab.tsx`.
+
+### 2026-08-20 — [Context] `useTranslations`' `t` does not satisfy `(k: string, v?: Record<string, unknown>) => string`
+
+Passing next-intl's `t` into a helper typed with a `Record<string, unknown>`
+values parameter fails with TS2345: next-intl's `TranslationValues` indexes to
+`TranslationValue` (string | number | Date | ReactNode), and `unknown` is not
+assignable to it. Don't widen the helper's signature to `any` — pass a
+pre-bound formatter callback instead (`(count: number) => t("k", { count })`),
+which keeps the helper pure and testable and keeps the key literal next to its
+namespace. Evidence:
+`client/src/app/repos/[repoId]/pulls/[number]/_components/BlastRadiusPanel/BlastGraph.tsx:38-48`.
+
 
 ## Recurring Errors & Fixes
 

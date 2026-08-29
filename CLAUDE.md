@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 DevDigest — local-first AI PR review tool; course-starter architecture (see
-`README.md` for what later lessons add). Four independent packages, **no
+`README.md` for what later lessons add). Five independent packages, **no
 pnpm/npm workspace** — don't run `pnpm -w ...`. Cross-package code is a
 tsconfig path alias (`reviewer-core` consumed as source by `server`) or
 vendored copies (`@devdigest/shared`, `@devdigest/ui`), not installable deps.
@@ -18,6 +18,7 @@ Node ≥22 · pnpm ≥10 · Docker (Postgres/pgvector only — API & web run on 
 | `client/` | `@devdigest/web` | Next.js 15 studio (UI) | 3000 | `pnpm dev` | `pnpm test` |
 | `reviewer-core/` | `@devdigest/reviewer-core` | pure engine: diff → prompt → LLM → grounded findings | — | — | `npm test` |
 | `e2e/` | `@devdigest/e2e` | deterministic browser flows (agent-browser, no LLM) | — | `./scripts/e2e.sh` | — |
+| `mcp/` | `@devdigest/mcp` | local stdio MCP server exposing DevDigest to AI agents | — | `npm start` | `npm test` |
 
 Quick start: `./scripts/dev.sh` (Postgres up, deps, migrate, seed, launch API+web).
 
@@ -45,11 +46,12 @@ extension has a known bug (issue #24987) where AUTO-load can miss.
 | `client/*` | [`client/CLAUDE.md`](client/CLAUDE.md) |
 | `reviewer-core/*` | [`reviewer-core/CLAUDE.md`](reviewer-core/CLAUDE.md) |
 | `e2e/*` | [`e2e/CLAUDE.md`](e2e/CLAUDE.md) |
+| `mcp/*` | [`mcp/CLAUDE.md`](mcp/CLAUDE.md) |
 
 ## Session protocol — Engineering Insights
 
 Before starting any work, identify which package(s) the request touches
-(`client/`, `server/`, `reviewer-core/`, `e2e/` — code under
+(`client/`, `server/`, `reviewer-core/`, `e2e/`, `mcp/` — code under
 `server/src/modules/repo-intel` counts as `server/`) and read that
 package's `INSIGHTS.md`. Treat its contents as high-confidence working
 context for analysis, planning, and implementation.
