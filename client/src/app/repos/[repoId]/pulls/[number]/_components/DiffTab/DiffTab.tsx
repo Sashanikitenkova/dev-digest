@@ -23,11 +23,22 @@ interface DiffTabProps {
   files: PrFile[];
   /** Inline commenting is offered only on open PRs (GitHub rejects otherwise). */
   canComment?: boolean;
+  /** Where to scroll on arrival, from `?file=&line=` — a brief review-focus row
+   *  deep-linking into the diff. Only the Smart Diff can honour it; the plain
+   *  fallback viewer has no jump mechanism and is left untouched. */
+  jumpTo?: { file: string; line: number | null } | null;
   /** Clicking a line's severity tag — the page turns this into ?tab=findings&finding=<id>. */
   onSelectFinding?: (id: string) => void;
 }
 
-export function DiffTab({ prId, filesCount, files, canComment, onSelectFinding }: DiffTabProps) {
+export function DiffTab({
+  prId,
+  filesCount,
+  files,
+  canComment,
+  jumpTo,
+  onSelectFinding,
+}: DiffTabProps) {
   const t = useTranslations("prReview");
   const { data: comments } = usePrComments(prId);
   const create = useCreatePrComment(prId);
@@ -131,6 +142,7 @@ export function DiffTab({ prId, filesCount, files, canComment, onSelectFinding }
           files={files}
           findingsByPath={findings}
           commenting={commenting}
+          jumpTo={jumpTo}
           onSelectFinding={onSelectFinding}
         />
       ) : (
