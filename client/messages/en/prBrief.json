@@ -9,7 +9,8 @@
   },
   "risks": {
     "title": "Risks",
-    "none": "No risks were raised for this pull request."
+    "none": "No risks were raised for this pull request.",
+    "allDropped": "The model raised {proposed, plural, one {# risk} other {# risks}}, but none could be grounded in this pull request's changes."
   },
   "focus": {
     "title": "Review focus",

@@ -4,6 +4,13 @@ import type { CSSProperties } from "react";
     element is monospace (a `MonoLink` sets `.mono` on the anchor itself). */
 const summaryFont = 'var(--font-sans, "Inter", -apple-system, sans-serif)';
 
+/** The shared half of the two empty-section sentences. Hoisted because a member
+    of `s` cannot spread another member while `s` is still being initialised, and
+    left UNANNOTATED on purpose: typing it as `CSSProperties` widens every member
+    that spreads it to csstype's own type, which `tsc` then cannot name portably
+    (TS2742). `satisfies` checks it without widening. */
+const emptyText = { fontSize: 13, lineHeight: 1.5 } satisfies CSSProperties;
+
 export const s = {
   card: {
     border: "1px solid var(--border)",
@@ -117,7 +124,11 @@ export const s = {
     gap: 8,
   } satisfies CSSProperties,
 
-  empty: { fontSize: 13, color: "var(--text-muted)", lineHeight: 1.5 } satisfies CSSProperties,
+  empty: { ...emptyText, color: "var(--text-muted)" } satisfies CSSProperties,
+
+  /** The empty Risks sentence when every risk the model raised was dropped:
+      a discarded answer is a signal, not an absence, so it is not muted. */
+  emptyWarn: { ...emptyText, color: "var(--warn)" } satisfies CSSProperties,
 
   riskRow: {
     display: "flex",

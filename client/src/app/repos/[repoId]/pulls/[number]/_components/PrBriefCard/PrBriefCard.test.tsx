@@ -176,6 +176,28 @@ describe("PrBriefCard — review focus navigation", () => {
     renderCard();
     expect(await screen.findByText(/No reading order could be grounded/)).toBeInTheDocument();
   });
+
+  // The counts are the only thing separating these two: the rendered risks array
+  // is empty either way, so reading `risks.length` alone cannot tell them apart.
+  it("says every risk was dropped when the model raised some and none survived", async () => {
+    get.mockResolvedValue(
+      brief({ risks: [], counts: { risks_proposed: 4, risks_kept: 0, focus_proposed: 3, focus_kept: 3 } }),
+    );
+    renderCard();
+    expect(
+      await screen.findByText(/The model raised 4 risks, but none could be grounded/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/No risks were raised/)).not.toBeInTheDocument();
+  });
+
+  it("says no risks were raised when the model proposed none", async () => {
+    get.mockResolvedValue(
+      brief({ risks: [], counts: { risks_proposed: 0, risks_kept: 0, focus_proposed: 3, focus_kept: 3 } }),
+    );
+    renderCard();
+    expect(await screen.findByText(/No risks were raised/)).toBeInTheDocument();
+    expect(screen.queryByText(/could be grounded in this pull request/)).not.toBeInTheDocument();
+  });
 });
 
 describe("PrBriefCard — states", () => {

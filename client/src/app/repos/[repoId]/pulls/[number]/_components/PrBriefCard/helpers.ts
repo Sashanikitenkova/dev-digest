@@ -2,6 +2,7 @@ import { ApiError } from "../../../../../../../lib/api";
 import { githubBlobUrl } from "../../../../../../../lib/github-urls";
 import type {
   PrRiskBriefRecord,
+  RiskBriefCounts,
   RiskBriefLevel,
   RiskBriefReference,
 } from "../../../../../../../lib/types";
@@ -155,4 +156,28 @@ export function riskLevelColor(level: RiskBriefLevel): string {
   if (level === "high") return "var(--crit)";
   if (level === "medium") return "var(--warn)";
   return "var(--ok)";
+}
+
+/**
+ * Which empty Risks section this is.
+ *
+ * "The model raised nothing" and "the model raised things we could not believe"
+ * are different claims and must not render the same sentence. The second is a
+ * generation in which every risk cited a file, line, symbol or endpoint that is
+ * not in this pull request, so `validateItems` discarded all of them server-side
+ * — the case the proposed-versus-kept counts exist to make visible (AC-28).
+ * Mirrors `ConventionsView`'s `allDropped` predicate
+ * (`app/conventions/_components/ConventionsView/ConventionsView.tsx:44`), which
+ * AC-28 names as the reporting shape to follow.
+ *
+ * `counts` is typed but not VERIFIED — `usePrBrief` casts the response rather
+ * than parsing it — so the parameter is optional and anything missing falls to
+ * `none`, the sentence shown before this branch existed. `toBriefDto` always
+ * emits an object here, so that is belt and braces rather than a live case.
+ */
+export type RisksEmptyReason = "none" | "all-dropped";
+
+export function risksEmptyReason(counts: RiskBriefCounts | undefined): RisksEmptyReason {
+  if (!counts) return "none";
+  return counts.risks_proposed > 0 && counts.risks_kept === 0 ? "all-dropped" : "none";
 }

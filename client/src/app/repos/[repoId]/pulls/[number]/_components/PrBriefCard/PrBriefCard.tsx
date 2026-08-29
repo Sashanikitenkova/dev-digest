@@ -8,11 +8,12 @@
    re-derived client-side — the card renders exactly what it was handed, as TEXT
    (no markdown, no HTML), and the counts it shows are the rows it drew.
 
-   The four non-happy states all matter and all stay honest: no brief yet is an
+   The five non-happy states all matter and all stay honest: no brief yet is an
    empty state with a generate action, a brief for an older head is a notice
    ABOVE the retained content rather than in place of it, a failed generation
-   shows the engine's own message and status, and zero grounded focus rows say
-   so in a sentence instead of a `(0)` badge. */
+   shows the engine's own message and status, zero grounded focus rows say so in
+   a sentence instead of a `(0)` badge, and an empty Risks section says WHICH
+   empty it is — nothing raised, or everything raised and nothing groundable. */
 "use client";
 
 import React from "react";
@@ -34,6 +35,7 @@ import {
   isBriefStale,
   resolveFocusTarget,
   riskLevelColor,
+  risksEmptyReason,
   type FocusTarget,
   type ReferenceKind,
 } from "./helpers";
@@ -248,7 +250,16 @@ export function PrBriefCard({
         <div style={s.section}>
           <div style={s.sectionHead}>{t("risks.title")}</div>
           {brief.risks.length === 0 ? (
-            <p style={s.empty}>{t("risks.none")}</p>
+            /* Which empty this is, never just "empty": a brief whose every risk
+               was dropped for citing somewhere that is not in this PR must not
+               claim no risk was raised. */
+            risksEmptyReason(brief.counts) === "all-dropped" ? (
+              <p style={s.emptyWarn}>
+                {t("risks.allDropped", { proposed: brief.counts.risks_proposed })}
+              </p>
+            ) : (
+              <p style={s.empty}>{t("risks.none")}</p>
+            )
           ) : (
             <ul style={s.list}>
               {brief.risks.map((risk, i) => (

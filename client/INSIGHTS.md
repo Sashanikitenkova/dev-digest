@@ -301,6 +301,21 @@ props. Evidence: `client/src/components/ContextFilesPicker/ContextFilesPicker.ts
 
 ## Recurring Errors & Fixes
 
+### 2026-08-29 — [Pitfall] Annotating a `styles.ts` const as `CSSProperties` and spreading it breaks `tsc` with TS2742
+
+Sharing the common half of two sibling styles looks like it wants a hoisted
+`const base: CSSProperties = {...}` — a member of `s` cannot spread another
+member while `s` is still being initialised, so hoisting is genuinely required.
+But annotating that const widens every member that spreads it to csstype's own
+type, and `tsc --noEmit` then fails the whole package with
+`error TS2742: The inferred type of 's' cannot be named without a reference to
+'.pnpm/csstype@…/node_modules/csstype'`. Nothing in the file looks wrong, and
+`vitest` passes — only `pnpm typecheck` catches it. Use `satisfies` instead:
+`const emptyText = { fontSize: 13, lineHeight: 1.5 } satisfies CSSProperties;`
+type-checks the literal without widening it, so the spread stays nameable. This
+is why the pre-existing `summaryFont` in the same file is unannotated. Evidence:
+`client/src/app/repos/[repoId]/pulls/[number]/_components/PrBriefCard/styles.ts:7-12`.
+
 ### 2026-08-28 — [Pitfall] A `<label>` around a `<button role="checkbox">` fires the handler TWICE
 
 `Checkbox` (vendored kit) wraps its button in a `<label>`, which makes that
