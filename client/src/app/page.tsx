@@ -4,6 +4,7 @@
 import React from "react";
 import { useRouter } from "next/navigation";
 import { useRepos } from "../lib/hooks";
+import { routes } from "../lib/routes";
 import { AppShell } from "../components/app-shell";
 import { PageContainer } from "../components/page-shell";
 import { EmptyState, Button, Skeleton } from "@devdigest/ui";
@@ -14,7 +15,7 @@ export default function HomePage() {
 
   React.useEffect(() => {
     if (repos && repos.length > 0) {
-      router.replace(`/repos/${repos[0]!.id}/pulls`);
+      router.replace(routes.pulls(repos[0]!.id));
     }
   }, [repos, router]);
 
@@ -33,12 +34,12 @@ export default function HomePage() {
             title="No repositories yet"
             body="Add a repository to start reviewing pull requests. Set your API keys once in Settings → API Keys."
             cta="Add repository"
-            onCta={() => router.push("/onboarding")}
+            onCta={() => router.push(routes.onboarding())}
           />
         ) : (
           <div>
             <p style={{ color: "var(--text-secondary)", marginBottom: 14 }}>Taking you to your repository…</p>
-            <Button kind="primary" onClick={() => router.push(`/repos/${repos[0]!.id}/pulls`)}>
+            <Button kind="primary" onClick={() => router.push(routes.pulls(repos[0]!.id))}>
               Open {repos[0]!.full_name}
             </Button>
           </div>

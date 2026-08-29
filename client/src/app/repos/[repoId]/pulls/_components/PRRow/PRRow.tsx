@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Icon, Avatar, Badge, CircularScore } from "@devdigest/ui";
 import type { PrMeta } from "@/lib/types";
+import { routes } from "@/lib/routes";
 import { RunCostBadge } from "@/components/RunCostBadge";
 import { SIZE_COLOR, STATUS_META } from "../../constants";
 import { relativeTime, sizeOf } from "../../helpers";
@@ -22,7 +23,7 @@ export function PRRow({ pr, repoId }: { pr: PrMeta; repoId: string }) {
     <div
       onMouseEnter={() => setH(true)}
       onMouseLeave={() => setH(false)}
-      onClick={() => router.push(`/repos/${repoId}/pulls/${pr.number}`)}
+      onClick={() => router.push(routes.pull(repoId, pr.number))}
       style={s.row(h)}
     >
       <div style={s.rowTitleCell}>
@@ -50,6 +51,35 @@ export function PRRow({ pr, repoId }: { pr: PrMeta; repoId: string }) {
       <div style={s.scoreCell}>
         {reviewed ? (
           <CircularScore score={pr.score!} size={34} stroke={3} />
+        ) : (
+          <span style={s.muted}>—</span>
+        )}
+      </div>
+      <div style={s.findingsCell}>
+        {pr.findings_critical != null || pr.findings_warning != null || pr.findings_suggestion != null ? (
+          <>
+            {(pr.findings_critical ?? 0) > 0 && (
+              <span style={s.sevChip("var(--crit)")}>
+                <Icon.AlertOctagon size={12} />
+                {pr.findings_critical}
+              </span>
+            )}
+            {(pr.findings_warning ?? 0) > 0 && (
+              <span style={s.sevChip("var(--warn)")}>
+                <Icon.AlertTriangle size={12} />
+                {pr.findings_warning}
+              </span>
+            )}
+            {(pr.findings_suggestion ?? 0) > 0 && (
+              <span style={s.sevChip("var(--sugg)")}>
+                <Icon.Lightbulb size={12} />
+                {pr.findings_suggestion}
+              </span>
+            )}
+            {(pr.findings_critical ?? 0) === 0 && (pr.findings_warning ?? 0) === 0 && (pr.findings_suggestion ?? 0) === 0 && (
+              <span style={s.muted}>—</span>
+            )}
+          </>
         ) : (
           <span style={s.muted}>—</span>
         )}

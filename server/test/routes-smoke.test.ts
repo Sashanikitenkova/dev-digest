@@ -64,4 +64,15 @@ describe('routes (no DB)', () => {
     expect(res.json().error.code).toBe('validation_error');
     await app.close();
   });
+
+  it('rejects a non-uuid pr id on the intent routes at the edge', async () => {
+    const app = await buildApp({ config });
+    for (const url of ['/pulls/not-a-uuid/intent', '/pulls/not-a-uuid/intent/detect']) {
+      const method = url.endsWith('detect') ? 'POST' : 'GET';
+      const res = await app.inject({ method, url });
+      expect(res.statusCode).toBe(422);
+      expect(res.json().error.code).toBe('validation_error');
+    }
+    await app.close();
+  });
 });

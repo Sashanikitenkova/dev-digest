@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { Button, Icon, IconBtn, Kbd, TextInput, FormField } from "@devdigest/ui";
 import { useAddRepo } from "@/lib/hooks";
 import { ApiError } from "@/lib/api";
+import { routes } from "@/lib/routes";
 
 export function AddRepoView() {
   const router = useRouter();
@@ -16,7 +17,7 @@ export function AddRepoView() {
   const [error, setError] = React.useState<string | null>(null);
   const addRepo = useAddRepo();
 
-  const close = React.useCallback(() => router.push("/"), [router]);
+  const close = React.useCallback(() => router.push(routes.home()), [router]);
 
   // Escapable (the footer advertises Esc — make it real).
   React.useEffect(() => {
@@ -32,7 +33,7 @@ export function AddRepoView() {
     setError(null);
     try {
       const repo = await addRepo.mutateAsync(repoUrl.trim());
-      router.push(`/repos/${repo.id}/pulls`);
+      router.push(routes.pulls(repo.id));
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not add repository");
     }
@@ -79,10 +80,10 @@ export function AddRepoView() {
           Paste a GitHub repository URL — DevDigest clones it locally and imports open PRs.
           API keys aren’t needed here; set them once in{" "}
           <a
-            href="/settings/api-keys"
+            href={routes.settings()}
             onClick={(e) => {
               e.preventDefault();
-              router.push("/settings/api-keys");
+              router.push(routes.settings());
             }}
             style={{ color: "var(--accent-text)" }}
           >

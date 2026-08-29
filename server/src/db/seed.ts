@@ -6,6 +6,13 @@ import {
   GENERAL_REVIEWER_PROMPT,
   SECURITY_REVIEWER_PROMPT,
   PERFORMANCE_REVIEWER_PROMPT,
+  TEST_QUALITY_REVIEWER_PROMPT,
+  API_CONTRACT_REVIEWER_PROMPT,
+  TEST_COVERAGE_NUDGE_SKILL,
+  FLAKY_TEST_PATTERNS_SKILL,
+  API_CONTRACT_GUARD_SKILL,
+  VENDORED_CONTRACT_SYNC_SKILL,
+  PR_QUALITY_RUBRIC_SKILL,
 } from './seed-prompts.js';
 
 /** Default provider/model for the built-in reviewer agents. */
@@ -18,11 +25,13 @@ const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash';
  *
  * Seeds: default workspace + system user + membership, default settings,
  * demo repo (acme/payments-api), PR #482 with files/commits, a sample review
- * with a few findings, and the three built-in agents (General + Security +
- * Performance), all on the default openrouter/deepseek-v4-flash provider+model.
+ * with a few findings, the five built-in agents (General + Security +
+ * Performance + Test Quality + API Contract), all on the default
+ * openrouter/deepseek-v4-flash provider+model, and the reusable skills those
+ * agents link to.
  *
- * Course lessons populate the other tables (skills, conventions, memory, eval,
- * …) once their features are built — they start empty here.
+ * Course lessons populate the other tables (conventions, memory, eval, …) once
+ * their features are built — they start empty here.
  */
 
 export const DEFAULT_WORKSPACE_NAME = 'default';
@@ -175,7 +184,7 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
     ]);
   }
 
-  // ---- built-in agents (the three starter presets) ----
+  // ---- built-in agents (the starter presets) ----
   // Prompt bodies live in ./seed-prompts.ts (mirrored in docs/agent-prompts/*.md).
   const seedAgents: Array<typeof t.agents.$inferInsert> = [
     {
@@ -211,13 +220,144 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
       version: 1,
       createdBy: userId,
     },
+    {
+      workspaceId,
+      name: 'Test Quality Reviewer',
+      description:
+        'Judges the tests: uncovered branches, missing corner cases, over-mocking, flaky patterns.',
+      provider: DEFAULT_PROVIDER,
+      model: DEFAULT_MODEL,
+      systemPrompt: TEST_QUALITY_REVIEWER_PROMPT,
+      enabled: true,
+      version: 1,
+      createdBy: userId,
+    },
+    {
+      workspaceId,
+      name: 'API Contract Reviewer',
+      description:
+        'Catches breaking changes to routes, schemas, and exported function signatures.',
+      provider: DEFAULT_PROVIDER,
+      model: DEFAULT_MODEL,
+      systemPrompt: API_CONTRACT_REVIEWER_PROMPT,
+      enabled: true,
+      version: 1,
+      createdBy: userId,
+    },
   ];
+  const agentIdByName = new Map<string, string>();
   for (const a of seedAgents) {
-    const [existing] = await db
+    let [existing] = await db
       .select()
       .from(t.agents)
       .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.name, a.name)));
-    if (!existing) await db.insert(t.agents).values(a);
+    if (!existing) [existing] = await db.insert(t.agents).values(a).returning();
+    agentIdByName.set(a.name, existing!.id);
+  }
+
+  // ---- reusable skills + agent links ----
+  // Deliberately OUTSIDE the `if (!pr)` guard above: that block is skipped on a
+  // re-seed once PR #482 exists, so anything nested in it would silently never
+  // land on an existing DB (see server/INSIGHTS.md, 2026-06-27). This section is
+  // idempotent on its own — insert-if-absent by name, `onConflictDoNothing` on
+  // the version snapshot and the agent link (both have composite PKs).
+  //
+  // `source` drives the trust boundary at review time: a 'manual' body is
+  // injected as trusted instructions, while 'community' / 'imported_url' /
+  // 'extracted' bodies are wrapped in `<untrusted source="skill:…">` and passed
+  // to the model as data. `flaky-test-patterns` is seeded as 'community' so that
+  // wrapping is demonstrable end-to-end without importing anything by hand.
+  const seedSkills: Array<Omit<typeof t.skills.$inferInsert, 'workspaceId'>> = [
+    {
+      name: 'test-coverage-nudge',
+      description:
+        'Demand a test for every branch this diff adds, and name the input that reaches it.',
+      type: 'custom',
+      source: 'manual',
+      body: TEST_COVERAGE_NUDGE_SKILL,
+      enabled: true,
+      version: 1,
+    },
+    {
+      name: 'flaky-test-patterns',
+      description:
+        'Flag sleeps, real clocks, unseeded randomness, order dependence, and volatile snapshots in tests.',
+      type: 'convention',
+      source: 'community',
+      body: FLAKY_TEST_PATTERNS_SKILL,
+      enabled: true,
+      version: 1,
+    },
+    {
+      name: 'api-contract-guard',
+      description:
+        'Classify each changed contract as additive or breaking, and name the consumer that breaks.',
+      type: 'rubric',
+      source: 'manual',
+      body: API_CONTRACT_GUARD_SKILL,
+      enabled: true,
+      version: 1,
+    },
+    {
+      name: 'vendored-contract-sync',
+      description:
+        'Require an edit under vendor/shared/ to appear in both the server and client copies.',
+      type: 'convention',
+      source: 'manual',
+      body: VENDORED_CONTRACT_SYNC_SKILL,
+      enabled: true,
+      version: 1,
+    },
+    {
+      name: 'pr-quality-rubric',
+      description:
+        'Hold every finding to the same bar: introduced here, mechanism named, cited, distinct, actionable.',
+      type: 'rubric',
+      source: 'manual',
+      body: PR_QUALITY_RUBRIC_SKILL,
+      enabled: true,
+      version: 1,
+    },
+  ];
+
+  const skillIdByName = new Map<string, string>();
+  for (const s of seedSkills) {
+    let [existing] = await db
+      .select()
+      .from(t.skills)
+      .where(and(eq(t.skills.workspaceId, workspaceId), eq(t.skills.name, s.name)));
+    if (!existing) {
+      [existing] = await db
+        .insert(t.skills)
+        .values({ ...s, workspaceId })
+        .returning();
+    }
+    skillIdByName.set(s.name, existing!.id);
+    // v1 snapshot so the Versions tab is never empty for a seeded skill.
+    await db
+      .insert(t.skillVersions)
+      .values({ skillId: existing!.id, version: 1, body: s.body })
+      .onConflictDoNothing();
+  }
+
+  // `order` is the sequence of blocks in the assembled prompt: the specialised
+  // rule first, then the shared quality rubric last.
+  const seedAgentSkills: Array<{ agent: string; skill: string; order: number }> = [
+    { agent: 'Test Quality Reviewer', skill: 'test-coverage-nudge', order: 0 },
+    { agent: 'Test Quality Reviewer', skill: 'flaky-test-patterns', order: 1 },
+    { agent: 'Test Quality Reviewer', skill: 'pr-quality-rubric', order: 2 },
+    { agent: 'API Contract Reviewer', skill: 'api-contract-guard', order: 0 },
+    { agent: 'API Contract Reviewer', skill: 'vendored-contract-sync', order: 1 },
+    { agent: 'API Contract Reviewer', skill: 'pr-quality-rubric', order: 2 },
+  ];
+  for (const link of seedAgentSkills) {
+    const agentId = agentIdByName.get(link.agent);
+    const skillId = skillIdByName.get(link.skill);
+    if (!agentId || !skillId) continue;
+    await db
+      .insert(t.agentSkills)
+      .values({ agentId, skillId, order: link.order, enabled: true })
+      .onConflictDoNothing();
   }
 
   return { workspaceId, userId };

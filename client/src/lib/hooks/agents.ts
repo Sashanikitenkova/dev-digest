@@ -3,7 +3,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
-import type { Agent, ModelInfo, Provider, ReviewStrategy } from "@devdigest/shared";
+import type { Agent, AgentSkillLink, ModelInfo, Provider, ReviewStrategy } from "@devdigest/shared";
 
 export function useAgents() {
   return useQuery({
@@ -76,6 +76,65 @@ export function useDeleteAgent() {
     onSuccess: (_d, id) => {
       qc.invalidateQueries({ queryKey: ["agents"] });
       qc.removeQueries({ queryKey: ["agent", id] });
+    },
+  });
+}
+
+/* ---- Agent ↔ Skill links (agent editor Skills tab) ----------------------
+   `AgentSkillLink.enabled` is the PER-LINK switch: does this link contribute a
+   prompt block? It is distinct from `Skill.enabled` (the skill itself), and a
+   disabled link keeps its `order` — which is why reordering stays meaningful
+   for a linked-but-off skill. */
+
+/** Ordered skill links for one agent (`GET /agents/:id/skills`). */
+export function useAgentSkills(agentId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["agent-skills", agentId],
+    queryFn: () => api.get<AgentSkillLink[]>(`/agents/${agentId}/skills`),
+    enabled: !!agentId,
+  });
+}
+
+export interface SetAgentSkillsInput {
+  agentId: string;
+  /** Full link set in the desired block order. */
+  skillIds: string[];
+}
+
+/**
+ * Set/reorder an agent's whole link set (`POST /agents/:id/skills`). The array
+ * order IS the prompt-block order; the server preserves each link's existing
+ * `enabled` flag across a reorder.
+ */
+export function useSetAgentSkills() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ agentId, skillIds }: SetAgentSkillsInput) =>
+      api.post<AgentSkillLink[]>(`/agents/${agentId}/skills`, { skill_ids: skillIds }),
+    onSuccess: (data, { agentId }) => {
+      qc.setQueryData(["agent-skills", agentId], data);
+    },
+  });
+}
+
+export interface ToggleAgentSkillInput {
+  agentId: string;
+  skillId: string;
+  enabled?: boolean;
+  order?: number;
+}
+
+/** Toggle one link on/off (`PUT /agents/:id/skills/:skillId`). */
+export function useToggleAgentSkill() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ agentId, skillId, enabled, order }: ToggleAgentSkillInput) =>
+      api.put<AgentSkillLink>(`/agents/${agentId}/skills/${skillId}`, {
+        ...(enabled !== undefined ? { enabled } : {}),
+        ...(order !== undefined ? { order } : {}),
+      }),
+    onSuccess: (_d, { agentId }) => {
+      qc.invalidateQueries({ queryKey: ["agent-skills", agentId] });
     },
   });
 }

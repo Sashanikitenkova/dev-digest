@@ -31,6 +31,15 @@ A spec lives in `specs/NN-name.flow.json`:
   command's stdout.
 - Locators are deterministic only (`--url`, `--text`, `find role|text|label`).
   We never use the AI `chat` command, so runs are stable and key-free.
+- `find placeholder` matches the placeholder **exactly** — copy the i18n value
+  verbatim, trailing `…` included. A multi-line placeholder cannot be matched;
+  target the field structurally instead. See `INSIGHTS.md` (2026-08-29).
+- Pair every `find text … click` with a `wait --text` for the same string:
+  `wait --url` is not a render barrier, and clicking too early is flaky.
+- A click is dispatched at coordinates and is **not** scrolled into view, and the
+  default viewport is only ~577px tall — a control below the fold is never hit
+  and the step still passes. Open a flow that reaches one with
+  `{ "cmd": ["set", "viewport", "1440", "1000"] }`.
 
 Flows target **read-only seeded data** (the demo repo `acme/payments-api`, PR
 #482, the seeded agents), so nothing triggers a model call.
@@ -100,3 +109,9 @@ a CI artifact by `.github/workflows/e2e-web.yml`).
 | `05-pr-diff` | PR #482 → Files changed tab → seeded file renders in the diff viewer |
 | `06-onboarding` | `/onboarding` → add-repository form renders (no submit) |
 | `07-settings` | `/settings/api-keys` + `/settings/models` → section titles render |
+| `08-skills` | `/skills` seeded cards → create from scratch → edit body → Versions v2 → agent Skills tab → per-link toggle off/on |
+
+> `08-skills` is the one flow that writes: it creates a skill named
+> `e2e-skill-08` (nothing else reads it) and toggles one seeded agent-skill link
+> off and back on, restoring it in the final step. Run it last (lexical order
+> already does) and prefer the hermetic runner, which throws the DB away anyway.

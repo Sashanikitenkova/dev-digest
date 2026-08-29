@@ -20,6 +20,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { usePrReviews, useCancelRun, usePrActiveRuns, usePrRuns, useDeleteRun } from "../../../../../lib/hooks/reviews";
 import { useActiveRepo, useRepoNotFound } from "../../../../../lib/repo-context";
 import { ApiError } from "../../../../../lib/api";
+import { routes } from "../../../../../lib/routes";
 import { githubPrUrl } from "../../../../../lib/github-urls";
 import type { FindingRecord } from "@devdigest/shared";
 
@@ -59,13 +60,24 @@ export default function PRDetailPage() {
 
   const tab = search.get("tab") ?? "overview";
   const traceRunId = search.get("trace");
-  const setParam = (key: string, val: string | null) => {
+  // Deep link from a Smart Diff severity tag: which finding to open + expand.
+  const targetFindingId = search.get("finding");
+  // Multi-key on purpose: two sequential single-key writes both build from the
+  // same `search` snapshot, so the second would drop the first one's change.
+  const urlWith = (next: Record<string, string | null>) => {
     const sp = new URLSearchParams(search.toString());
-    if (val == null) sp.delete(key);
-    else sp.set(key, val);
-    router.replace(`/repos/${repoId}/pulls/${number}${sp.toString() ? `?${sp.toString()}` : ""}`);
+    for (const [k, v] of Object.entries(next)) {
+      if (v == null) sp.delete(k);
+      else sp.set(k, v);
+    }
+    return `${routes.pull(repoId, number)}${sp.toString() ? `?${sp.toString()}` : ""}`;
   };
-  const setTab = (t: string) => setParam("tab", t);
+  const setParam = (key: string, val: string | null) => router.replace(urlWith({ [key]: val }));
+  // Switching tabs by hand drops the finding target — that's what lets the SAME
+  // badge be clicked twice in a row (an unchanged param re-triggers nothing).
+  const setTab = (t: string) => router.replace(urlWith({ tab: t, finding: null }));
+  // push, not replace: Back should return to the diff line the user came from.
+  const goToFinding = (id: string) => router.push(urlWith({ tab: "findings", finding: id }));
 
   // Reviews come newest-first; each is its own run (grouped into accordions).
   const runs = reviews ?? [];
@@ -81,8 +93,8 @@ export default function PRDetailPage() {
   // github.com deep-links for the header and finding file references.
   const repoFullName = activeRepo?.full_name ?? null;
   const crumb = [
-    { label: repoName, mono: true, href: `/repos/${repoId}/pulls` },
-    { label: "Pull Requests", href: `/repos/${repoId}/pulls` },
+    { label: repoName, mono: true, href: routes.pulls(repoId) },
+    { label: "Pull Requests", href: routes.pulls(repoId) },
     { label: `#${number}`, mono: true },
   ];
 
@@ -134,7 +146,15 @@ export default function PRDetailPage() {
       />
 
       <div style={{ padding: "24px 32px 44px", display: "flex", flexDirection: "column", gap: 24, maxWidth: 1080, margin: "0 auto" }}>
-        {tab === "overview" && <OverviewTab prBody={pr.body} />}
+        {tab === "overview" && (
+          <OverviewTab
+            prId={prId}
+            headSha={pr.head_sha}
+            prBody={pr.body}
+            reviews={runs}
+            runs={prRuns}
+          />
+        )}
 
         {tab === "findings" && (
           <FindingsTab
@@ -142,6 +162,7 @@ export default function PRDetailPage() {
             liveRunIds={liveRunIds}
             reviewRunning={reviewRunning}
             lethalTrifecta={lethalTrifecta}
+            targetFindingId={targetFindingId}
             runs={runs}
             prRuns={prRuns}
             prCommits={pr.commits}
@@ -167,6 +188,7 @@ export default function PRDetailPage() {
             filesCount={pr.files_count}
             files={pr.files}
             canComment={pr.status === "open"}
+            onSelectFinding={goToFinding}
           />
         )}
       </div>
