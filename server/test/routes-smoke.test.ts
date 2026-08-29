@@ -53,6 +53,40 @@ describe('routes (no DB)', () => {
     await app.close();
   });
 
+  /* A rate-limit rejection used to fall through to the error handler's generic
+     tail: logged at `error` as if the server had broken, and returned as
+     `internal_error` with the retry delay readable only as prose inside the
+     message. The studio's context editor is the caller that hit it, and it
+     needs a NUMBER to back off by. The limiter is disabled under NODE_ENV=test
+     (app.ts), so this case builds the app as `development` to turn it on;
+     `/settings/test-connection` carries its own `max: 20` override. */
+  it('shapes a 429 as rate_limited, with the retry delay as a number', async () => {
+    const app = await buildApp({
+      config: {
+        ...loadConfig({ ...process.env, NODE_ENV: 'development' } as NodeJS.ProcessEnv),
+        logLevel: 'silent',
+      },
+      overrides: { github: new MockGitHubClient({ login: 'octocat' }) },
+    });
+    const hit = () =>
+      app.inject({
+        method: 'POST',
+        url: '/settings/test-connection',
+        payload: { provider: 'github' },
+      });
+
+    let res = await hit();
+    for (let i = 0; i < 20 && res.statusCode !== 429; i++) res = await hit();
+
+    expect(res.statusCode).toBe(429);
+    const body = res.json();
+    expect(body.error.code).toBe('rate_limited');
+    expect(typeof body.error.details.retryAfter).toBe('number');
+    // Seconds, not milliseconds — @fastify/rate-limit sends ceil(ttl / 1000).
+    expect(body.error.details.retryAfter).toBeLessThanOrEqual(60);
+    await app.close();
+  });
+
   it('returns 422 structured error on invalid body', async () => {
     const app = await buildApp({ config });
     const res = await app.inject({
@@ -62,6 +96,17 @@ describe('routes (no DB)', () => {
     });
     expect(res.statusCode).toBe(422);
     expect(res.json().error.code).toBe('validation_error');
+    await app.close();
+  });
+
+  it('rejects a non-uuid pr id on the intent routes at the edge', async () => {
+    const app = await buildApp({ config });
+    for (const url of ['/pulls/not-a-uuid/intent', '/pulls/not-a-uuid/intent/detect']) {
+      const method = url.endsWith('detect') ? 'POST' : 'GET';
+      const res = await app.inject({ method, url });
+      expect(res.statusCode).toBe(422);
+      expect(res.json().error.code).toBe('validation_error');
+    }
     await app.close();
   });
 });

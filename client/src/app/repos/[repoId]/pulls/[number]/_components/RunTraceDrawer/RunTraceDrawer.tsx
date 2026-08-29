@@ -14,7 +14,7 @@ import { useRunEvents } from "@/lib/hooks/reviews";
 import { DRAWER_WIDTH, LOG_HEIGHT, TABS } from "./constants";
 import { eventsToLog, traceLog } from "./helpers";
 import { s } from "./styles";
-import { TraceBody } from "./_components/TraceBody";
+import { TraceBody } from "./TraceBody";
 
 export interface RunTraceDrawerProps {
   runId: string;

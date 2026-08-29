@@ -1,5 +1,14 @@
 import { sql } from 'drizzle-orm';
-import { pgTable, uuid, text, integer, jsonb, timestamp, doublePrecision } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  uuid,
+  text,
+  integer,
+  jsonb,
+  timestamp,
+  doublePrecision,
+  boolean,
+} from 'drizzle-orm/pg-core';
 import { now } from './_shared';
 import { workspaces } from './core';
 import { pullRequests } from './pulls';
@@ -43,7 +52,22 @@ export const findings = pgTable('findings', {
   trifectaComponents: jsonb('trifecta_components').$type<string[]>(),
   acceptedAt: timestamp('accepted_at', { withTimezone: true }),
   dismissedAt: timestamp('dismissed_at', { withTimezone: true }),
+  /** Set by the deterministic scope filter; demotion is recorded, never a delete. */
+  outOfScope: boolean('out_of_scope').notNull().default(false),
+  scopeNote: text('scope_note'),
 });
+
+/**
+ * One assembled (or deliberately skipped) classifier input, as persisted in
+ * `pr_intent.sources`. Structural mirror of the `IntentSource` contract — the
+ * schema layer deliberately does not import from `vendor/shared`.
+ */
+export type IntentSourceRow = {
+  kind: string;
+  ref?: string | null;
+  status: 'used' | 'missing';
+  reason?: string | null;
+};
 
 export const prIntent = pgTable('pr_intent', {
   prId: uuid('pr_id')
@@ -52,11 +76,69 @@ export const prIntent = pgTable('pr_intent', {
   intent: text('intent').notNull(),
   inScope: jsonb('in_scope').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   outOfScope: jsonb('out_of_scope').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  /** Commit the intent was derived from. NULL = pre-migration row → treat as stale. */
+  headSha: text('head_sha'),
+  /** 0–1, computed by code from the assembled sources. */
+  confidence: doublePrecision('confidence'),
+  confidenceLevel: text('confidence_level', { enum: ['low', 'medium', 'high'] }),
+  sources: jsonb('sources').$type<IntentSourceRow[]>().notNull().default(sql`'[]'::jsonb`),
+  provider: text('provider'),
+  model: text('model'),
+  tokensIn: integer('tokens_in'),
+  tokensOut: integer('tokens_out'),
+  costUsd: doublePrecision('cost_usd'),
+  generatedAt: timestamp('generated_at', { withTimezone: true }).defaultNow().notNull(),
 });
+
+/** Where one risk / review-focus item points, as persisted in `pr_brief.json`. */
+export type RiskBriefReferenceRow = {
+  file?: string | null;
+  line?: number | null;
+  symbol?: string | null;
+  endpoint?: string | null;
+};
+
+/**
+ * The generated Why + Risk brief persisted in `pr_brief.json`. Structural
+ * mirror of the `PrRiskBriefRecord` contract minus the fields that are their
+ * own columns below (`pr_id`, head sha, provenance) — the schema layer
+ * deliberately does not import from `vendor/shared` (the `IntentSourceRow`
+ * precedent above).
+ */
+export type PrRiskBriefPayload = {
+  what: string;
+  why: string;
+  risk_level: 'low' | 'medium' | 'high';
+  risks: {
+    severity: 'low' | 'medium' | 'high';
+    summary: string;
+    reference: RiskBriefReferenceRow;
+  }[];
+  review_focus: { summary: string; reference: RiskBriefReferenceRow }[];
+  inputs: {
+    section: string;
+    status: 'present' | 'removed' | 'unavailable';
+    reason?: string | null;
+  }[];
+  counts: {
+    risks_proposed: number;
+    risks_kept: number;
+    focus_proposed: number;
+    focus_kept: number;
+  };
+};
 
 export const prBrief = pgTable('pr_brief', {
   prId: uuid('pr_id')
     .primaryKey()
     .references(() => pullRequests.id, { onDelete: 'cascade' }),
-  json: jsonb('json').notNull(),
+  json: jsonb('json').$type<PrRiskBriefPayload>().notNull(),
+  /** Commit the brief was generated from. NULL = pre-migration row → treat as stale. */
+  headSha: text('head_sha'),
+  provider: text('provider'),
+  model: text('model'),
+  tokensIn: integer('tokens_in'),
+  tokensOut: integer('tokens_out'),
+  costUsd: doublePrecision('cost_usd'),
+  generatedAt: timestamp('generated_at', { withTimezone: true }).defaultNow().notNull(),
 });

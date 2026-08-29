@@ -64,6 +64,11 @@ export class OpenRouterProvider implements LLMProvider {
     let tokensOut = 0;
     let costFromApi: number | null = null;
     let lastRaw = '';
+    // Kept for the failure path only: what the LAST attempt ended on. They are
+    // the difference between "the model was cut off" and "the model answered
+    // badly", which look identical once the repair loop has given up.
+    let lastFinishReason: string | null = null;
+    let lastReasoningTokens: number | null = null;
 
     for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
       const res = await this.client.chat.completions.create({
@@ -91,6 +96,11 @@ export class OpenRouterProvider implements LLMProvider {
         throw new Error(`OpenRouter returned no choices for ${req.schemaName}${errMsg ? `: ${errMsg}` : ''}`);
       }
       lastRaw = choice.message?.content ?? '';
+      lastFinishReason = choice.finish_reason ?? null;
+      lastReasoningTokens =
+        (
+          res.usage as { completion_tokens_details?: { reasoning_tokens?: number } } | null | undefined
+        )?.completion_tokens_details?.reasoning_tokens ?? null;
       tokensIn += res.usage?.prompt_tokens ?? 0;
       tokensOut += res.usage?.completion_tokens ?? 0;
       // `usage.cost` is an OpenRouter extension (USD), absent from the OpenAI SDK type.
@@ -112,7 +122,35 @@ export class OpenRouterProvider implements LLMProvider {
       messages.push({ role: 'assistant', content: lastRaw });
       messages.push({ role: 'user', content: parsed.repromptMessage });
     }
-    throw new Error(`OpenRouter structured output failed schema validation for ${req.schemaName}`);
+    /*
+     * Say WHY it failed, not just that it did.
+     *
+     * `finish_reason: 'length'` with empty content is the signature of a
+     * completion cap exhausted before the answer began — on a reasoning model
+     * the reasoning tokens are drawn from `max_tokens` first. Reported as a
+     * generic schema-validation failure it reads as "the model can't do
+     * structured output", which sends the reader to the wrong place entirely.
+     *
+     * This is OUR diagnosis of OUR request, assembled from `finish_reason` and
+     * the usage counters. It deliberately carries no provider response body, so
+     * a caller that must not echo one (SPEC-02 AC-31) can still surface it.
+     */
+    const truncated = lastFinishReason === 'length';
+    const detail = [
+      `finish_reason=${lastFinishReason ?? 'unknown'}`,
+      `content=${lastRaw.length === 0 ? 'empty' : `${lastRaw.length} chars`}`,
+      lastReasoningTokens != null ? `reasoning_tokens=${lastReasoningTokens}` : null,
+      req.maxTokens != null ? `max_tokens=${req.maxTokens}` : null,
+    ]
+      .filter(Boolean)
+      .join(', ');
+
+    throw new Error(
+      truncated
+        ? `OpenRouter hit the completion cap for ${req.schemaName} before returning parseable output ` +
+          `(${detail}). Raise maxTokens: on a reasoning model the reasoning tokens come out of it too.`
+        : `OpenRouter structured output failed schema validation for ${req.schemaName} (${detail})`,
+    );
   }
 
   /**

@@ -82,6 +82,19 @@ export interface BlastResult {
    * Present on the persistent (non-degraded) path; absent otherwise.
    */
   factsByFile?: Record<string, { endpoints: string[]; crons: string[] }>;
+  /**
+   * Files reached by walking the import graph BACKWARDS from a changed file
+   * (≤ BFS_DEPTH hops): `reachedFiles[R] = { fromFile, depth }` means R depends
+   * on the changed file `fromFile`. This is what lets an endpoint declared two
+   * modules away be attributed to the symbol whose file it transitively imports.
+   * Present on the persistent path only; absent when there is no graph.
+   */
+  reachedFiles?: Record<string, { fromFile: string; depth: number }>;
+  /**
+   * Caller count per changed symbol name BEFORE per-symbol truncation, so a
+   * consumer can say "showing 20 of 43" instead of implying 20 is all there is.
+   */
+  callerTotals?: Record<string, number>;
   degraded?: boolean;
   reason?: DegradedReason;
 }

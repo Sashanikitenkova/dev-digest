@@ -1,4 +1,9 @@
-/* Donut — ring chart with a legend, on Recharts. */
+/* Donut — ring chart with a legend, on Recharts.
+
+   `valuePrefix`/`decimals` default to the cost shape ("$12.00") this was first
+   written for. Counts pass decimals={0} and an empty prefix — a findings tally
+   rendered as "52.00" reads as money that isn't there. Defaults are unchanged,
+   so every existing caller behaves exactly as before. */
 import React from "react";
 import { PieChart, Pie, Cell } from "recharts";
 
@@ -13,11 +18,13 @@ export function Donut({
   size = 130,
   stroke = 22,
   valuePrefix = "$",
+  decimals = 2,
 }: {
   segments: DonutSegment[];
   size?: number;
   stroke?: number;
   valuePrefix?: string;
+  decimals?: number;
 }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
@@ -47,7 +54,7 @@ export function Donut({
             <span style={{ color: "var(--text-secondary)", flex: 1 }}>{s.label}</span>
             <span className="mono tnum" style={{ color: "var(--text-primary)", fontWeight: 600 }}>
               {valuePrefix}
-              {s.value.toFixed(2)}
+              {s.value.toFixed(decimals)}
             </span>
           </div>
         ))}

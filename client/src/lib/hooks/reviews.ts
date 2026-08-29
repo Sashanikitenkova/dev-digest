@@ -4,8 +4,9 @@
 
 import React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, API_BASE } from "../api";
-import { notify } from "../toast";
+import { api } from "../api";
+import { createRunEventsSource } from "../services/runEventsSource";
+import { activeRunsPollInterval, runsPollInterval } from "../services/pollingPolicy";
 import type {
   FindingActionKind,
   PrReviewComment,
@@ -30,7 +31,7 @@ export function usePrActiveRuns(prId: string | null | undefined) {
     queryKey: ["pr-active-runs", prId],
     queryFn: () => api.get<ActiveRun[]>(`/pulls/${prId}/runs/active`),
     enabled: !!prId,
-    refetchInterval: (query) => ((query.state.data?.length ?? 0) > 0 ? 4000 : false),
+    refetchInterval: (query) => activeRunsPollInterval(query.state.data),
   });
 }
 
@@ -42,8 +43,7 @@ export function usePrRuns(prId: string | null | undefined) {
     queryKey: ["pr-runs", prId],
     queryFn: () => api.get<RunSummary[]>(`/pulls/${prId}/runs`),
     enabled: !!prId,
-    refetchInterval: (query) =>
-      (query.state.data ?? []).some((r) => r.status === "running") ? 4000 : false,
+    refetchInterval: (query) => runsPollInterval(query.state.data),
   });
 }
 
@@ -174,39 +174,14 @@ export function useRunEvents(runIds: string[]) {
     if (runIds.length === 0) return;
     setEvents([]);
     setRunning(true);
-    const sources: EventSource[] = [];
-    let open = runIds.length;
 
-    for (const runId of runIds) {
-      const es = new EventSource(`${API_BASE}/runs/${runId}/events`);
-      const onMsg = (ev: MessageEvent) => {
-        try {
-          const parsed = JSON.parse(ev.data) as RunEvent;
-          setEvents((prev) => [...prev, parsed]);
-          // Runtime agent failures arrive as SSE `error` events (not as a
-          // mutation/query error), so the global error toast never sees them —
-          // surface them here so the user gets a notification without a reload.
-          if (parsed.kind === "error" && parsed.msg) notify.error(parsed.msg);
-        } catch {
-          /* ignore non-JSON keepalive frames (and dataless native error events) */
-        }
-      };
-      // The server tags events with kind as the SSE `event:` name AND emits them
-      // as default messages too in some clients — listen broadly.
-      es.onmessage = onMsg;
-      for (const kind of ["info", "tool", "result", "error"]) {
-        es.addEventListener(kind, onMsg as EventListener);
-      }
-      es.onerror = () => {
-        es.close();
-        open -= 1;
-        if (open <= 0) setRunning(false);
-      };
-      sources.push(es);
-    }
+    const unsubscribe = createRunEventsSource(runIds, {
+      onEvent: (event) => setEvents((prev) => [...prev, event]),
+      onAllClosed: () => setRunning(false),
+    });
 
     return () => {
-      for (const es of sources) es.close();
+      unsubscribe();
       setRunning(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -50,10 +50,13 @@ d('Settings: feature models + secrets status (Testcontainers pg)', () => {
       provider: 'openrouter',
       model: 'z-ai/glm-4.7-flash',
     });
-    // An unset feature still resolves to its own registry default.
+    // An unset feature still resolves to its own registry default. `risk_brief`
+    // moved to OpenRouter with SPEC-02 (AC-59): the shipped `openai/gpt-4.1`
+    // default failed outright on a box holding only an OpenRouter key, which is
+    // the one credential this repo documents.
     expect(await resolveFeatureModel(app.container, workspaceId, 'risk_brief')).toEqual({
-      provider: 'openai',
-      model: 'gpt-4.1',
+      provider: 'openrouter',
+      model: 'deepseek/deepseek-v4-pro',
     });
 
     await app.close();

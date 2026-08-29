@@ -131,6 +131,69 @@ export const Skill = z.object({
 });
 export type Skill = z.infer<typeof Skill>;
 
+// Result of POST /skills/import/preview — a pure parse of an uploaded .md or
+// .zip. Nothing is persisted; the client shows this, and only a subsequent
+// POST /skills saves it. `skipped_files` lists archive entries the parser
+// refused to inflate (anything not ending in .md) — server-generated, so the
+// guarantee shown to the user is the same fact the parser acted on.
+export const SkillImportPreview = z.object({
+  name: z.string(),
+  description: z.string(),
+  type: SkillType,
+  body: z.string(),
+  source: SkillSource,
+  skipped_files: z.array(z.string()),
+});
+export type SkillImportPreview = z.infer<typeof SkillImportPreview>;
+
+// An immutable body snapshot from `skill_versions`. Mirrors `AgentVersion`,
+// but narrower: skills snapshot the BODY only, so name/description/type edits
+// never create one. Restoring an old body is a normal update that writes a
+// NEW version — history is append-only and never rewritten.
+export const SkillVersion = z.object({
+  skill_id: z.string(),
+  version: z.number().int(),
+  body: z.string(),
+  created_at: z.string(),
+});
+export type SkillVersion = z.infer<typeof SkillVersion>;
+
+/**
+ * The three numbers the skill CARD shows in its footer, for every skill at
+ * once (`GET /skills/stats`). Rates are 0..1 on the wire; the UI formats them
+ * as percentages.
+ *
+ * IMPORTANT — what `accept_rate` does and does not mean. Nothing in the schema
+ * attributes a finding to the skill that provoked it: `findings` hangs off
+ * `reviews`, and a review knows only its AGENT. So every finding-derived number
+ * here is "produced by agents that use this skill", NOT "caused by this skill".
+ * The UI must say so; presenting it as causal would be a lie the data can't back.
+ *
+ * `pull_frequency` is null when no run in the window used a linked agent, and
+ * `accept_rate` is null when nothing was triaged — null means "no evidence",
+ * which is a different statement from 0.
+ */
+export const SkillStatsSummary = z.object({
+  skill_id: z.string(),
+  /** Agents whose link is enabled (the skill's own switch is shown separately). */
+  used_by_agents: z.number().int(),
+  pull_frequency: z.number().min(0).max(1).nullable(),
+  accept_rate: z.number().min(0).max(1).nullable(),
+});
+export type SkillStatsSummary = z.infer<typeof SkillStatsSummary>;
+
+/** Full Stats tab payload (`GET /skills/:id/stats`). Windowed to 30 days. */
+export const SkillStats = SkillStatsSummary.extend({
+  /** Every link, enabled or not — `used_by_agents` counts only enabled ones. */
+  linked_agents: z.number().int(),
+  findings_30d: z.number().int(),
+  findings_by_category: z.array(
+    z.object({ category: z.string(), count: z.number().int() }),
+  ),
+  agents: z.array(z.object({ id: z.string(), name: z.string() })),
+});
+export type SkillStats = z.infer<typeof SkillStats>;
+
 export const CommunitySkill = z.object({
   name: z.string(),
   repo: z.string(),
@@ -141,15 +204,44 @@ export const CommunitySkill = z.object({
 export type CommunitySkill = z.infer<typeof CommunitySkill>;
 
 // ---- Conventions ----
+export const ConventionStatus = z.enum(['pending', 'accepted', 'rejected']);
+export type ConventionStatus = z.infer<typeof ConventionStatus>;
+
+/**
+ * A house-rule proposed by the extractor and GROUNDED against the repo clone:
+ * `evidence_path` + `evidence_line` were verified to exist, and
+ * `evidence_snippet` was matched against that line's real content before the
+ * row was persisted. Ungrounded candidates are dropped, never stored.
+ *
+ * `status` replaced an earlier `accepted` boolean — triage is three-state, and
+ * a boolean cannot separate "not triaged yet" from "rejected".
+ */
 export const ConventionCandidate = z.object({
   id: z.string(),
+  category: z.string().nullish(),
   rule: z.string(),
   evidence_path: z.string(),
+  evidence_line: z.number().int().nullish(),
   evidence_snippet: z.string(),
   confidence: z.number().min(0).max(1),
-  accepted: z.boolean(),
+  status: ConventionStatus,
+  created_at: z.string(),
 });
 export type ConventionCandidate = z.infer<typeof ConventionCandidate>;
+
+/**
+ * Result of POST /repos/:id/conventions/extract. `dropped` is deliberately
+ * part of the contract: a run where the model proposed 8 rules and every one
+ * failed evidence validation must not read as a success in the UI.
+ */
+export const ConventionExtractResult = z.object({
+  proposed: z.number().int(),
+  kept: z.number().int(),
+  dropped: z.number().int(),
+  sampled_files: z.number().int(),
+  candidates: z.array(ConventionCandidate),
+});
+export type ConventionExtractResult = z.infer<typeof ConventionExtractResult>;
 
 // ---- Agents ----
 export const Provider = z.enum(['openai', 'anthropic', 'openrouter']);
@@ -182,6 +274,18 @@ export const Agent = z.object({
   // Inject repo-intel context (repo skeleton + callers + rank note) into this
   // agent's review prompt. Default on; gated again by the global flag.
   repo_intel: z.boolean().default(true),
+  /**
+   * How many skills actually contribute a prompt block to this agent — links
+   * where `agent_skills.enabled` AND `skills.enabled`. Note this is stricter
+   * than `SkillStatsSummary.used_by_agents`, which ignores the skill's own
+   * switch: there the skill is fixed and its switch is already on screen, here
+   * the question is "how many blocks does this agent get".
+   *
+   * Optional because only the LIST endpoint pays for the grouped count; single
+   * agent reads (get/create/update) leave it undefined rather than fire a
+   * second query for a badge nothing is rendering.
+   */
+  skills_count: z.number().int().optional(),
 });
 export type Agent = z.infer<typeof Agent>;
 
@@ -189,5 +293,9 @@ export const AgentSkillLink = z.object({
   agent_id: z.string(),
   skill_id: z.string(),
   order: z.number().int(),
+  // Per-link switch: does this link contribute a prompt block at review time?
+  // Distinct from `Skill.enabled` (the skill itself); a review injects a block
+  // only when BOTH are true. Order is preserved while a link is disabled.
+  enabled: z.boolean(),
 });
 export type AgentSkillLink = z.infer<typeof AgentSkillLink>;

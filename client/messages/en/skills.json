@@ -97,5 +97,120 @@
     "bodyLabel": "Skill body (Markdown)",
     "bodyHint": "Saving a changed body creates a new immutable version.",
     "version": "v{version}"
+  },
+  "editor": {
+    "tabs": {
+      "config": "Config",
+      "preview": "Preview",
+      "stats": "Stats",
+      "versions": "Versions",
+      "context": "Context"
+    },
+    "createFromScratch": "Create from scratch",
+    "configHeading": "Configuration",
+    "enabled": "Enabled",
+    "nameLabel": "Name",
+    "namePlaceholder": "pr-quality-rubric",
+    "descriptionLabel": "Description",
+    "descriptionHint": "The skill's interface — write it directively: state what the agent should do. This is what an agent author reads when deciding to link it.",
+    "descriptionPlaceholder": "Rubric for evaluating PR quality…",
+    "typeLabel": "Type",
+    "bodyLabel": "Skill body",
+    "bodyPlaceholder": "# Rule\nDescribe the rule…",
+    "save": "Save",
+    "saving": "Saving…",
+    "saved": "Saved.",
+    "saveError": "Could not save this skill.",
+    "deleteSkill": "Delete skill",
+    "deleteConfirm": "Delete this skill? Agent links are removed too.",
+    "newSkill": "Untitled skill",
+    "newSkillBody": "# Untitled skill\n\nDescribe the rule the reviewing agent should apply.\n",
+    "previewSubtitle": "Rendered as the reviewing agent receives it.",
+    "untrustedNotice": "This skill came from an untrusted source. At review time its body is wrapped in <untrusted> delimiters and passed to the model as data, never as instructions."
+  },
+  "stats": {
+    "heading": "Stats",
+    "subtitle": "Last 30 days. Findings come from reviews by agents that use this skill — nothing records which skill produced a given finding, so read these as association, not attribution.",
+    "usedBy": "Used by",
+    "usedByUnit": "{count, plural, one {agent} other {agents}}",
+    "pullFrequency": "Pull frequency",
+    "pullFrequencyHint": "Share of prompt-assembling runs by these agents that actually included this skill's block.",
+    "acceptRate": "Accept rate",
+    "acceptRateHint": "Accepted ÷ triaged findings. Untriaged findings are not counted either way.",
+    "findings": "Findings (30d)",
+    "agentsHeading": "Agents using this skill",
+    "agentsEmpty": "No agent links this skill yet.",
+    "open": "Open",
+    "linkDisabled": "link off",
+    "categoryHeading": "Findings by category",
+    "categoryEmpty": "No findings in the last 30 days.",
+    "noData": "—",
+    "loadError": "Could not load stats."
+  },
+  "card": {
+    "agents": "{count, plural, one {# agent} other {# agents}}",
+    "pull": "{percent}% pull",
+    "accept": "{percent}% accept",
+    "pullNone": "— pull",
+    "acceptNone": "— accept"
+  },
+  "versions": {
+    "heading": "Versions",
+    "subtitle": "Every saved change to the body is snapshotted. Newest first.",
+    "version": "v{version}",
+    "current": "current",
+    "createdAt": "Saved {date}",
+    "diff": "Diff",
+    "hideDiff": "Hide diff",
+    "restore": "Restore",
+    "restoreConfirm": "Restore this body? It is saved as a new version — history is never rewritten.",
+    "restored": "Restored as v{version}.",
+    "empty": "No earlier versions yet.",
+    "loadError": "Could not load versions."
+  },
+  "agentTab": {
+    "heading": "Skills",
+    "enabledCount": "{enabled} of {total} enabled",
+    "caption": "Order matters — earlier skills appear earlier in the assembled prompt. Drag to reorder.",
+    "filterPlaceholder": "Filter skills…",
+    "addSkills": "Link a skill",
+    "unlink": "Unlink",
+    "moveUp": "Move {name} earlier in the prompt",
+    "moveDown": "Move {name} later in the prompt",
+    "skillDisabled": "skill disabled",
+    "empty": {
+      "title": "No skills linked",
+      "body": "Link a skill to add its rules to this agent's review prompt."
+    },
+    "noMatch": "No linked skill matches that filter.",
+    "loadError": "Could not load this agent's skills.",
+    "saveError": "Could not update this agent's skills."
+  },
+  "import": {
+    "title": "Add a skill",
+    "subtitle": "Import from a .md file or a .zip archive",
+    "chooseFile": "Choose file…",
+    "noFile": "No file selected",
+    "parsing": "Reading…",
+    "previewHeading": "Preview (nothing saved yet)",
+    "nameLabel": "Name",
+    "descriptionLabel": "Description",
+    "bodyLabel": "Body",
+    "skippedHeading": "Skipped, not executed:",
+    "skippedNote": "Only .md entries are read from an archive. Every other entry is listed and left untouched — never inflated, written to disk, or executed.",
+    "trustNotice": "Imported skills are stored as untrusted data and arrive disabled until you vet them.",
+    "submit": "Import skill",
+    "importing": "Importing…",
+    "parseError": "Could not read that file.",
+    "unsupported": "Choose a .md or .zip file."
+  },
+  "tokens": {
+    "badge": "~{count} tokens"
+  },
+  "contextTab": {
+    "heading": "Project context to use",
+    "caption": "Repository documents attached to this skill. Any agent using this skill inherits them, so a rule and the document it refers to travel together.",
+    "loadError": "Couldn’t load this skill’s project context",
+    "saveError": "Couldn’t save the change"
   }
 }
