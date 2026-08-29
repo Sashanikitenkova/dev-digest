@@ -512,6 +512,59 @@ not merely strict: one kept 2 of 7, another kept 10 of 10. The route returns
 render as a successful empty scan. Evidence:
 `server/src/modules/conventions/helpers.ts`, `test/conventions-grounding.test.ts`.
 
+### 2026-08-29 — [Pitfall] Reasoning tokens come out of `max_tokens`, so a completion cap sized for the answer returns NOTHING
+
+The PR brief shipped with `BRIEF_MAX_COMPLETION_TOKENS = 1_200`, chosen as "the
+size of a brief". Every generation failed in the studio with a 502 reading
+*"Check the provider is reachable and the model supports structured outputs"* —
+and the provider was reachable, and the model does support them.
+
+On a reasoning model the reasoning tokens are drawn from the same `max_tokens`
+budget, **before** any content. Measured live against
+`openrouter/deepseek-v4-pro` with the feature's real schema and a 40-file
+prompt:
+
+| `max_tokens` | `finish_reason` | reasoning | outcome |
+|---|---|---|---|
+| 1 200 | `length` | 1 200 / 1 200 | empty content, failed 3/3 |
+| 4 000 | `stop` | 0 | parsed, $0.0052 |
+
+`deepseek-v4-flash` behaves the same (1 200 fails 3/3; at 4 000 it spends 1 430
+reasoning of 2 938 total). OpenRouter's `reasoning: {exclude: true}` only HIDES
+the tokens — it still burned 929 and still failed — and `reasoning: {effort:
+'low'}` merely reduces them to 511, which is still not enough room for the
+answer.
+
+Three things make this hard to see:
+
+1. **It never looks like truncation.** Empty content goes into
+   `parseWithRepair`, fails, gets reprompted `maxRetries` times, and finally
+   throws *"failed schema validation"* — so it reads as "this model can't do
+   structured output", pointing at the provider instead of at our own cap.
+2. **Every mocked test passes straight through it.** `MockLLMProvider` returns
+   a fixture and consumes no tokens, so none of the 88 tests written for this
+   feature — unit, integration against real Postgres, or client — could observe
+   a completion cap being exhausted. The one check that catches it is a real
+   call.
+3. **Each failed attempt still costs money.** Three retries × a full cap of
+   reasoning tokens, with nothing to show.
+
+`reviewer-core/src/llm/openrouter.ts` now reports `finish_reason`, whether the
+content was empty, the reasoning-token count and `max_tokens` when it gives up,
+and names the cap when `finish_reason` is `length` — our own diagnosis, carrying
+no provider response body, so a caller forbidden from echoing one can still
+surface it. Evidence: `server/src/modules/brief/constants.ts`,
+`reviewer-core/src/llm/openrouter.ts`, `reviewer-core/test/openrouter-structured.test.ts`,
+`server/test/brief-budget.test.ts`.
+
+**This likely explains the 2026-07-20 open question below** about a review
+taking 13m40s with skill blocks added and 55s without, on
+`openrouter/deepseek-v4-flash` — now known to be a reasoning model. A bigger
+structured-output prompt means more reasoning; if a response gets truncated
+mid-reasoning the repair loop reprompts with an even longer message and reasons
+again. Worth re-timing that case with the reasoning-token counter now that we
+log it.
+
 ## Open Questions
 
 ### 2026-07-20 — Why did the skills-on review run take 13 minutes against 55 seconds without?

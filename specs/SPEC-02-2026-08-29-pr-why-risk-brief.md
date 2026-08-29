@@ -5,7 +5,9 @@ Created: 2026-08-29
 Status: approved
 Supersedes: —
 Amended: 2026-08-29 — AC-13, AC-14, AC-20 and AC-54 tightened and AC-60 … AC-64 added, following the cross-model review of the implementation plan (`docs/reviews/SPEC-02-cross-model-review.md`). Amended in place rather than superseded because no implementation existed at the time; the amendment is listed here so the change is visible rather than silent.
-Scope: touches `server/`, `client/` · does **not** touch `reviewer-core/`, `e2e/`, `mcp/`
+Amended: 2026-08-29 (second) — the completion-cap NFR raised 1 200 → 4 000 and AC-65 added, after the shipped feature failed 100% of real generations. The cap was written as if it bounded the answer; on the reasoning model this spec chose as its default it is consumed by reasoning tokens first, so the model returned nothing. Every acceptance test mocked the LLM and passed throughout — recorded here because the requirement, not the implementation, was wrong.
+Amended: 2026-08-29 (third) — the `Scope:` line widened to include `reviewer-core/`, and AC-66 added, after the second amendment's fix crossed a scope line it never updated. AC-65 requires a completion-cap failure to be reported distinctly from an unreachable provider, and the only place that distinction exists is the provider adapter: `finish_reason` and the reasoning-token counts are read from the OpenRouter response and discarded before `completeStructured` returns, so no server-side caller can recover them. The diagnosis was therefore added in `reviewer-core/src/llm/openrouter.ts`, with `reviewer-core/test/openrouter-structured.test.ts` covering it, rather than inferred from an error string in `server/`. Recorded here because the change shipped under a scope line that forbade it.
+Scope: touches `server/`, `client/`, and — per the third amendment, for AC-65's diagnosis only — `reviewer-core/src/llm/openrouter.ts` and its test · does **not** touch `e2e/`, `mcp/`
 Design sources: two annotated mockups of the PR page (Overview tab), supplied by the course assignment as a written description of their content rather than as image files · the user's written feature request and constraint list · existing repo code cited inline
 
 ## Problem and user
@@ -103,6 +105,9 @@ The **PR reviewer** — the engineer who opens a pull request in the DevDigest s
 - **AC-36** *(unwanted behaviour)* — IF reading or writing the stored brief fails, THEN `GET /pulls/:id/brief` shall return an error and shall not fall back to generating one.
 - **AC-37** *(ubiquitous)* — A failure of any kind in this feature shall fail zero review runs and shall render zero other Overview cards unusable.
 
+- **AC-65** *(unwanted behaviour)* — IF a generation fails because the model exhausted its completion cap before producing parseable output, THEN the system shall report that distinctly from an unreachable or incapable provider, and shall name the completion budget as the thing to change — while still exposing no provider response body (AC-31).
+- **AC-66** *(unwanted behaviour)* — IF the `cl100k_base` encoder has failed to load, so the `Tokenizer` port has fallen back to the `ceil(chars ÷ 4)` heuristic (`server/src/adapters/tokenizer/index.ts`), THEN the system shall make **zero** LLM calls and shall return an error stating that the input budget could not be enforced. AC-13's ceiling is defined in `cl100k_base` tokens; a heuristic wrong by tens of percent on code and paths cannot enforce it, and enforcing it silently with that heuristic would make AC-13 false at runtime with no signal. The port shall expose the degraded state; the repo-map renderer, whose budget is advisory, shall continue to ignore it.
+
 **The card**
 
 - **AC-38** *(ubiquitous)* — The Overview tab shall render the brief as a single full-width card, above the existing two-column Intent / Blast Radius grid (`client/.../OverviewTab/OverviewTab.tsx:40-48`) and below the existing verdict banner (`:38`).
@@ -149,7 +154,7 @@ The **PR reviewer** — the engineer who opens a pull request in the DevDigest s
 | US-3 | AC-44, AC-45, AC-46, AC-47, AC-48 | EC-4, EC-5, EC-11 | e2e |
 | US-4 | AC-1, AC-2, AC-3, AC-6, AC-7, AC-8, AC-63, AC-64 | EC-7, EC-8, EC-19, EC-20 | integration |
 | US-5 | AC-4, AC-5, AC-50, AC-51, AC-58 | EC-8, EC-12 | integration |
-| US-6 | AC-15, AC-16, AC-31, AC-32, AC-33, AC-34, AC-35, AC-36, AC-37, AC-49, AC-52, AC-53 | EC-10, EC-13, EC-14, EC-15 | integration |
+| US-6 | AC-15, AC-16, AC-31, AC-32, AC-33, AC-34, AC-35, AC-36, AC-37, AC-49, AC-52, AC-53, AC-65, AC-66 | EC-10, EC-13, EC-14, EC-15, EC-24, EC-25 | integration |
 | US-7 | AC-9, AC-10, AC-11, AC-12, AC-13, AC-14, AC-54, AC-55, AC-56, AC-57, AC-60, AC-61, AC-62 | EC-16, EC-17, EC-18, EC-21 | unit |
 
 ## Edge cases
@@ -177,6 +182,8 @@ The **PR reviewer** — the engineer who opens a pull request in the DevDigest s
 - **EC-20** — A generation started at head `H1` finishes after the PR has moved to `H2` and a brief for `H2` has been stored → covered by AC-64; the `H1` result is discarded, the `H2` brief survives.
 - **EC-21** — A pull request whose protected inputs alone exceed the budget → covered by AC-60 and AC-61; no call is made and the reason is stated. Not covered by AC-14, whose shedding order cannot reach the protected set.
 - **EC-22** — The model returns `{}`, `{ file: null }`, `{ line: 42 }`, or a reference whose `file` is valid and whose `symbol` is invented → covered by AC-20, AC-20a and AC-20b; every one is dropped.
+- **EC-24** — The resolved model spends its entire completion cap on reasoning and returns empty content → covered by AC-65. Reported as budget exhaustion naming the cap, not as a provider-reachability or structured-output-support problem, because the fault is this system's configuration rather than the provider's health.
+- **EC-25** — The BPE ranks fail to load at runtime (OOM, a bundler that cannot ship the ~1 MB chunk), so every token count silently becomes a character heuristic → covered by AC-66; the generation is refused rather than gated on a number the system does not believe.
 - **EC-23** — The model call succeeds but the row write fails → the paid result is logged at error level so it is recoverable, and the next request regenerates. Accepted limitation, not covered by an AC: durable pre-call state is out of scope for a single-process local tool (see Open questions).
 
 ## Design review
@@ -267,7 +274,7 @@ No change to any finding, review, agent, skill, intent, blast, risks or smart-di
 - The feature shall make exactly **1** LLM call per generation, **0** per `GET /pulls/:id/brief`, and **0** per cache hit on `POST /pulls/:id/brief`.
 - The model tier shall be whatever the workspace has selected for the `risk_brief` feature, defaulting to `openrouter` / `deepseek/deepseek-v4-pro` (AC-59) — a reasoning-tier model, chosen over the Flash-class one `review_intent` uses because the output is a judgement over structured metadata rather than a classification. Measured cost at the 8 000-token ceiling with a 1 200-token completion is **$0.0077**, inside the $0.05 budget below.
 - The assembled prompt shall be at most **8 000 tokens**, where a token is one `cl100k_base` token as counted by the server's `Tokenizer` port.
-- The completion shall be capped at **1 200 tokens**.
+- The completion shall be capped at **4 000 tokens**. This is not the length of the answer: on a reasoning model the reasoning tokens are drawn from the same cap *before* any content, so a cap sized for the answer alone yields empty output. Measured against the shipped default with this feature's real schema and a 40-file prompt, **1 200 failed 100% of attempts** (the whole cap spent reasoning, `finish_reason: length`, empty content) while 4 000 succeeded; the worst real completion observed was 2 938 tokens. `reasoning.exclude` hides those tokens without saving them and `reasoning.effort: low` only reduces them, so neither rescues a cap that is too small.
 - A generation shall cost at most **$0.05**, measured as the `costUsd` returned by the provider and stored on the brief.
 - A generation shall time out after **60 000 ms** and shall make at most **2** schema-repair reprompts, matching the intent classifier's budget (`server/src/modules/intent/constants.ts:11`, `:14`).
 - A brief shall carry at most **10** risks and at most **8** review-focus items.
