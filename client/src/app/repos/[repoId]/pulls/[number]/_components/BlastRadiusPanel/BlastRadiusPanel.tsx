@@ -57,9 +57,13 @@ function ImpactChips({
 
   if (direct.length === 0 && indirect.length === 0) return null;
 
-  const chip = (e: { endpoint: string; cron: boolean }, dim: boolean) => (
+  // `key` is passed in rather than derived from the endpoint: the same endpoint
+  // string can legitimately appear twice (two changed symbols reaching it, an
+  // endpoint that is also a cron), and direct and indirect chips render into the
+  // SAME parent, so the scope prefix is part of what makes the key unique.
+  const chip = (e: { endpoint: string; cron: boolean }, dim: boolean, key: string) => (
     <span
-      key={e.endpoint}
+      key={key}
       style={{
         ...s.chip(e.cron ? "var(--warn)" : "var(--accent-text, #6ea8fe)"),
         ...(dim ? s.chipDim : null),
@@ -72,10 +76,10 @@ function ImpactChips({
 
   return (
     <div style={s.chipRow}>
-      {direct.map((e) => chip(e, false))}
+      {direct.map((e, i) => chip(e, false, `d-${i}-${e.endpoint}`))}
       {indirect.length > 0 &&
         (showIndirect ? (
-          indirect.map((e) => chip(e, true))
+          indirect.map((e, i) => chip(e, true, `i-${i}-${e.endpoint}`))
         ) : (
           <button
             type="button"
@@ -299,8 +303,14 @@ export function BlastRadiusPanel({
 
             {view === "tree" ? (
               <div style={s.tree}>
-                {blast.downstream.map((d) => (
-                  <SymbolNode key={d.symbol} impact={d} linkFor={linkFor} />
+                {/* Keyed on position AND name, never on the name alone: a symbol
+                    name is not unique across a repo, `DownstreamImpact` carries no
+                    file to disambiguate it, and two same-named symbols are two
+                    genuinely different entries with different callers — both must
+                    render. Position alone would be wrong the other way: it would
+                    hand a reordered list the previous node's open/closed state. */}
+                {blast.downstream.map((d, i) => (
+                  <SymbolNode key={`${i}-${d.symbol}`} impact={d} linkFor={linkFor} />
                 ))}
               </div>
             ) : (
