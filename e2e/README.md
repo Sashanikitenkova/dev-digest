@@ -31,6 +31,15 @@ A spec lives in `specs/NN-name.flow.json`:
   command's stdout.
 - Locators are deterministic only (`--url`, `--text`, `find role|text|label`).
   We never use the AI `chat` command, so runs are stable and key-free.
+- `find placeholder` matches the placeholder **exactly** — copy the i18n value
+  verbatim, trailing `…` included. A multi-line placeholder cannot be matched;
+  target the field structurally instead. See `INSIGHTS.md` (2026-08-29).
+- Pair every `find text … click` with a `wait --text` for the same string:
+  `wait --url` is not a render barrier, and clicking too early is flaky.
+- A click is dispatched at coordinates and is **not** scrolled into view, and the
+  default viewport is only ~577px tall — a control below the fold is never hit
+  and the step still passes. Open a flow that reaches one with
+  `{ "cmd": ["set", "viewport", "1440", "1000"] }`.
 
 Flows target **read-only seeded data** (the demo repo `acme/payments-api`, PR
 #482, the seeded agents), so nothing triggers a model call.
