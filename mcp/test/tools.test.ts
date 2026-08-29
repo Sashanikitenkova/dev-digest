@@ -4,6 +4,7 @@ import {
   STILL_RUNNING_MESSAGE,
 } from '../src/errors.js';
 import { resetResolverCache } from '../src/resolve.js';
+import type { ToolResult } from '../src/shape.js';
 import { getBlastRadius } from '../src/tools/get-blast-radius.js';
 import { getConventions } from '../src/tools/get-conventions.js';
 import { getFindings } from '../src/tools/get-findings.js';
@@ -228,8 +229,20 @@ describe('get_blast_radius', () => {
 
 // ---- get_findings ---------------------------------------------------------
 
+/** One entry of the `reviews` array, as it appears on the wire. */
+type OutReview = {
+  agent?: string;
+  summary?: string;
+  findings_count: number;
+  findings: Array<{ title: string; rationale?: string }>;
+};
+
+const reviewsOf = (result: ToolResult): OutReview[] =>
+  (structured(result)['reviews'] ?? []) as OutReview[];
+
 describe('get_findings', () => {
-  it('returns the newest review, shaped, without rationale by default', async () => {
+  it('returns EVERY review on the pull request, newest first, findings nested', async () => {
+    // A PR has one review per agent; returning only the newest hid the rest.
     const ctx = happyContext({
       reviews: {
         [PULL_ID]: [
@@ -242,9 +255,29 @@ describe('get_findings', () => {
     const out = structured(result);
 
     expect(out['status']).toBe('ok');
-    expect(out['summary']).toBe('newest');
-    expect(out['findings_count']).toBe(1);
-    expect(JSON.stringify(out)).not.toContain('rationale');
+    expect(reviewsOf(result).map((r) => r.summary)).toEqual(['newest', 'older']);
+    expect(reviewsOf(result)[0]!.findings_count).toBe(1);
+  });
+
+  it('sums total_findings across every returned review', async () => {
+    const ctx = happyContext({
+      reviews: {
+        [PULL_ID]: [
+          review({ id: 'a', findings: [finding(), finding()] }),
+          review({ id: 'b', findings: [finding()] }),
+        ],
+      },
+    });
+    const result = await getFindings(ctx, { repo: 'acme/payments-api', pr: 482 });
+    expect(structured(result)['total_findings']).toBe(3);
+  });
+
+  it('omits rationale by default', async () => {
+    const ctx = happyContext({
+      reviews: { [PULL_ID]: [review({ findings: [finding()] })] },
+    });
+    const result = await getFindings(ctx, { repo: 'acme/payments-api', pr: 482 });
+    expect(JSON.stringify(structured(result))).not.toContain('rationale');
   });
 
   it('adds rationale and confidence under detail: true', async () => {
@@ -259,7 +292,7 @@ describe('get_findings', () => {
     expect(JSON.stringify(structured(result))).toContain('rationale');
   });
 
-  it('skips the multi-agent summary roll-up row and takes the review row', async () => {
+  it('skips the multi-agent summary roll-up row and keeps only review rows', async () => {
     const ctx = happyContext({
       reviews: {
         [PULL_ID]: [
@@ -269,10 +302,10 @@ describe('get_findings', () => {
       },
     });
     const result = await getFindings(ctx, { repo: 'acme/payments-api', pr: 482 });
-    expect(structured(result)['summary']).toBe('real');
+    expect(reviewsOf(result).map((r) => r.summary)).toEqual(['real']);
   });
 
-  it('filters by agent when one is named', async () => {
+  it('narrows the list to one agent when one is named', async () => {
     const ctx = happyContext({
       agents: [agent(), agent({ id: 'other-agent', name: 'API Contract Reviewer' })],
       reviews: {
@@ -287,7 +320,7 @@ describe('get_findings', () => {
       pr: 482,
       agent: 'Security Reviewer',
     });
-    expect(structured(result)['summary']).toBe('security');
+    expect(reviewsOf(result).map((r) => r.summary)).toEqual(['security']);
   });
 
   it('ignores rows whose agent_id is null when filtering by agent', async () => {
@@ -308,10 +341,11 @@ describe('get_findings', () => {
 
     expect(result.isError).toBeUndefined();
     expect(structured(result)['status']).toBe('no_review');
+    expect(structured(result)['reviews']).toBeUndefined();
     expect(String(structured(result)['message'])).toContain('Call run_agent_on_pr');
   });
 
-  it('truncates to max_findings while reporting the full count', async () => {
+  it('truncates to max_findings per review while reporting the full count', async () => {
     const ctx = happyContext({
       reviews: {
         [PULL_ID]: [
@@ -330,10 +364,30 @@ describe('get_findings', () => {
       pr: 482,
       max_findings: 1,
     });
-    const out = structured(result);
-    expect(out['findings_count']).toBe(3);
-    expect(out['findings']).toHaveLength(1);
-    expect((out['findings'] as Array<{ title: string }>)[0]!.title).toBe('c');
+    const first = reviewsOf(result)[0]!;
+    expect(first.findings_count).toBe(3);
+    expect(first.findings).toHaveLength(1);
+    expect(first.findings[0]!.title).toBe('c');
+  });
+
+  it('applies max_findings PER review, and total_findings stays untruncated', async () => {
+    const ctx = happyContext({
+      reviews: {
+        [PULL_ID]: [
+          review({ id: 'a', findings: [finding(), finding()] }),
+          review({ id: 'b', findings: [finding(), finding()] }),
+        ],
+      },
+    });
+    const result = await getFindings(ctx, {
+      repo: 'acme/payments-api',
+      pr: 482,
+      max_findings: 1,
+    });
+    // Each review keeps one finding — the cap is not a global budget that
+    // would starve whichever review happens to be iterated last.
+    expect(reviewsOf(result).map((r) => r.findings.length)).toEqual([1, 1]);
+    expect(structured(result)['total_findings']).toBe(4);
   });
 });
 

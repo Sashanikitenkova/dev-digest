@@ -7,6 +7,7 @@ import {
   shapeConventions,
   shapeFindings,
   shapeReview,
+  shapeReviewList,
 } from '../src/shape.js';
 import { agent, convention, finding, review } from './stub-api.js';
 
@@ -190,5 +191,41 @@ describe('shapeConventions', () => {
     const many = Array.from({ length: 40 }, (_, i) => convention({ rule: `r${i}` }));
     expect(shapeConventions(many)).toHaveLength(DEFAULT_MAX_CONVENTIONS);
     expect(DEFAULT_MAX_CONVENTIONS).toBe(30);
+  });
+});
+
+describe('shapeReviewList', () => {
+  it('nests findings inside each review and sums the full total', () => {
+    const out = shapeReviewList([
+      review({ summary: 'a', findings: [finding(), finding()] }),
+      review({ summary: 'b', findings: [finding()] }),
+    ]);
+    expect(out.reviews.map((r) => r.summary)).toEqual(['a', 'b']);
+    expect(out.reviews[0]!.findings).toHaveLength(2);
+    expect(out.total_findings).toBe(3);
+  });
+
+  it('preserves the caller order — listReviews is already newest-first', () => {
+    const out = shapeReviewList([review({ summary: 'newest' }), review({ summary: 'older' })]);
+    expect(out.reviews.map((r) => r.summary)).toEqual(['newest', 'older']);
+  });
+
+  it('counts full findings in total_findings even when each review truncates', () => {
+    // Truncation must stay visible: a caller comparing total_findings against
+    // the returned arrays can tell that raising max_findings returns more.
+    const out = shapeReviewList(
+      [
+        review({ findings: [finding(), finding(), finding()] }),
+        review({ findings: [finding(), finding()] }),
+      ],
+      { max: 1 },
+    );
+    expect(out.reviews.map((r) => r.findings.length)).toEqual([1, 1]);
+    expect(out.reviews.map((r) => r.findings_count)).toEqual([3, 2]);
+    expect(out.total_findings).toBe(5);
+  });
+
+  it('returns an empty list and a zero total for no reviews', () => {
+    expect(shapeReviewList([])).toEqual({ reviews: [], total_findings: 0 });
   });
 });

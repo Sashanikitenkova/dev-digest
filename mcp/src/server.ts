@@ -54,9 +54,9 @@ const FindingOut = z.object({
 });
 
 /**
- * Shared by both review-returning tools. Everything past `status` is optional so
- * the same schema covers the real outcomes — done, failed, still running, and
- * nothing-reviewed-yet — without a second schema or a discriminated union.
+ * `run_agent_on_pr`'s result: ONE review, flat. Everything past `status` is
+ * optional so the same schema covers the real outcomes — done, failed, still
+ * running — without a discriminated union.
  */
 const ReviewOut = z.object({
   status: z.string(),
@@ -67,6 +67,32 @@ const ReviewOut = z.object({
   agent: z.string().optional(),
   findings_count: z.number().optional(),
   findings: z.array(FindingOut).optional(),
+  message: z.string().optional(),
+});
+
+/** One review inside `get_findings`, with its own findings nested. */
+const ReviewItemOut = z.object({
+  verdict: z.string().optional(),
+  score: z.number().optional(),
+  summary: z.string().optional(),
+  agent: z.string().optional(),
+  findings_count: z.number(),
+  findings: z.array(FindingOut),
+});
+
+/**
+ * `get_findings`' result: a pull request has one review PER AGENT, so this is a
+ * list, not a single review. `reviews`/`total_findings` are optional because the
+ * healthy "nothing reviewed yet" outcome carries only `status` + `message`.
+ *
+ * ⚠️ Measured at 433 of the 450 per-tool token budget — 17 tokens of headroom.
+ * Adding another field here WILL break `token-budget.test.ts`; re-measure before
+ * touching it.
+ */
+const FindingsOut = z.object({
+  status: z.string(),
+  reviews: z.array(ReviewItemOut).optional(),
+  total_findings: z.number().optional(),
   message: z.string().optional(),
 });
 
@@ -129,21 +155,21 @@ export function createServer(ctx: ToolContext): McpServer {
     'get_findings',
     {
       description:
-        'Returns the verdict and findings from the latest completed review of a pull request, without running a new one.',
+        'Returns the verdicts and findings from every completed review of a pull request, without running a new one.',
       inputSchema: z.object({
         repo: RepoArg,
         pr: PrArg,
         agent: z
           .string()
           .optional()
-          .describe("Only return this agent's review. Defaults to the most recent review by any agent."),
+          .describe("Only return this agent's reviews. Defaults to every agent's reviews."),
         detail: z
           .boolean()
           .optional()
           .describe("Include each finding's full rationale. Defaults to false."),
         max_findings: MaxFindingsArg,
       }),
-      outputSchema: ReviewOut,
+      outputSchema: FindingsOut,
       annotations: { readOnlyHint: true },
     },
     (args) => guard('get_findings', () => getFindings(ctx, args)),

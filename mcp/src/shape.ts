@@ -176,6 +176,39 @@ export function shapeReview(review: ApiReview, options: ShapeFindingsOptions = {
   return shaped;
 }
 
+export interface ShapedReviewList {
+  reviews: ShapedReview[];
+  /** Full findings across EVERY returned review, before per-review truncation. */
+  total_findings: number;
+}
+
+/**
+ * Shape every review on a pull request, findings nested per review.
+ *
+ * `get_findings` returns a list rather than the single newest review because a
+ * pull request genuinely has one review PER AGENT, and collapsing them hid the
+ * others: a model asking "what did the reviewers find?" got one agent's answer
+ * with no signal that more existed.
+ *
+ * `total_findings` sums the FULL per-review counts, not the truncated arrays —
+ * same rule as `findings_count` above, so a caller can always tell that raising
+ * `max_findings` would return more. Note the two numbers answer different
+ * questions: `findings_count` is per review, `total_findings` is the pull
+ * request's whole surface.
+ *
+ * `max` stays a PER-REVIEW cap. Making it a global budget would silently starve
+ * later agents' reviews of findings depending on iteration order.
+ */
+export function shapeReviewList(
+  reviews: readonly ApiReview[],
+  options: ShapeFindingsOptions = {},
+): ShapedReviewList {
+  return {
+    reviews: reviews.map((review) => shapeReview(review, options)),
+    total_findings: reviews.reduce((sum, review) => sum + review.findings.length, 0),
+  };
+}
+
 // ---- Conventions ----------------------------------------------------------
 
 export interface ShapedConvention {

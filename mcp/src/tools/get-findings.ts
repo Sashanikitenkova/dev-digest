@@ -1,7 +1,7 @@
 import { noReviewYet } from '../errors.js';
 import type { ApiReview, ToolContext } from '../ports.js';
 import { resolvePull, resolveRepo, resolveAgent } from '../resolve.js';
-import { DEFAULT_MAX_FINDINGS, ok, shapeReview, type ToolResult } from '../shape.js';
+import { DEFAULT_MAX_FINDINGS, ok, shapeReviewList, type ToolResult } from '../shape.js';
 
 export interface GetFindingsArgs {
   repo: string;
@@ -14,8 +14,13 @@ export interface GetFindingsArgs {
 /**
  * APPLICATION ring — `get_findings`.
  *
- * Reads `GET /pulls/:id/reviews` (newest first) and takes the newest matching
- * `ReviewDto`. Two nullability traps live here:
+ * Reads `GET /pulls/:id/reviews` (newest first) and returns EVERY matching
+ * `ReviewDto`, findings nested inside each one, as
+ * `{ reviews: [...], total_findings: N }`. A pull request has one review per
+ * agent; returning only the newest hid the rest with no signal they existed.
+ * Passing `agent` narrows the list to that agent's reviews.
+ *
+ * Two nullability traps live here:
  *
  * - `kind` is `'summary' | 'review'` — a multi-agent round also emits a
  *   `summary` roll-up row, so anything that wants "an agent's review" must
@@ -32,9 +37,9 @@ export async function getFindings(ctx: ToolContext, args: GetFindingsArgs): Prom
   const pullId = await resolvePull(ctx, repo, args.pr);
 
   const reviews = await ctx.api.listReviews(pullId);
-  const latest = pickLatestReview(reviews, agent?.id);
+  const matching = selectReviews(reviews, agent?.id);
 
-  if (!latest) {
+  if (matching.length === 0) {
     return ok({
       status: 'no_review',
       message: noReviewYet(repo.fullName, args.pr, agent?.name),
@@ -43,16 +48,16 @@ export async function getFindings(ctx: ToolContext, args: GetFindingsArgs): Prom
 
   return ok({
     status: 'ok',
-    ...shapeReview(latest, {
+    ...shapeReviewList(matching, {
       detail: args.detail ?? false,
       max: args.max_findings ?? DEFAULT_MAX_FINDINGS,
     }),
   });
 }
 
-/** `listReviews` is newest-first, so the first match is the latest. */
-function pickLatestReview(reviews: readonly ApiReview[], agentId?: string): ApiReview | undefined {
-  return reviews.find(
+/** `listReviews` is newest-first, and `filter` preserves that order. */
+function selectReviews(reviews: readonly ApiReview[], agentId?: string): ApiReview[] {
+  return reviews.filter(
     (r) => r.kind === 'review' && (agentId === undefined || (r.agent_id !== null && r.agent_id === agentId)),
   );
 }
