@@ -12,6 +12,7 @@ import conventions from './conventions/routes.js';
 import context from './context/routes.js';
 import intent from './intent/routes.js';
 import blast from './blast/routes.js';
+import brief from './brief/routes.js';
 import risks from './risks/routes.js';
 import smartDiff from './smart-diff/routes.js';
 
@@ -42,6 +43,7 @@ export const modules: Record<string, FastifyPluginAsync> = {
   context,
   intent,
   blast,
+  brief,
   risks,
   smartDiff,
 };
