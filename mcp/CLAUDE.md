@@ -31,7 +31,7 @@ skill. The rings map cleanly even with no DB and no Fastify:
 | Port | `ports.ts` → `DevDigestApi` | the interface the outer world implements |
 | Adapter | `adapters/http-api.ts` | the **only** file that touches `fetch` |
 | Presentation | `server.ts` | `registerTool` only; no logic |
-| Composition root | `index.ts` | the only file that constructs the adapter |
+| Composition root | `config.ts`, `index.ts` | env validated once; the only file that constructs the adapter |
 
 ## Non-default conventions
 
@@ -53,27 +53,30 @@ skill. The rings map cleanly even with no DB and no Fastify:
 - **No build step.** Runs from source under `tsx`, like every other runnable
   entrypoint in this repo (`server/src/db/migrate.ts`, `e2e/run.ts`). No `tsc`
   build, no `dist/`.
-- 🚫 **Opt-in only — never auto-started.** Two invariants, both deliberate:
-  (1) `scripts/dev.sh` must **never** launch this server. An MCP stdio server is
-  spawned by the *host* over a pipe, so starting it from the dev stack would
-  leave a process with nothing on its stdin. (2) The config is
-  `mcp/devdigest.mcp.json`, **not** a repo-root `.mcp.json` — that filename is
-  auto-discovered by Claude Code and would connect on every session in this repo.
-  You opt in per session with
-  `claude --mcp-config mcp/devdigest.mcp.json` (run from the repo root).
-  Do not "helpfully" restore either one. Verify the result **inside** the
-  session with `/mcp` — **not** `claude mcp list`, which reports only persisted
-  user/project/local registrations. A `--mcp-config` server is session-scoped
-  and is absent from that list even while connected and working, so its absence
-  there is not evidence of failure.
+- 🚫 **Never launched by the dev stack.** `scripts/dev.sh` must **never** start
+  this server. An MCP stdio server is spawned by the *host* over a pipe, so
+  starting it from the dev stack would leave a process with nothing on its
+  stdin. This one is still true — do not "helpfully" add it.
+- 🔄 **Auto-discovered from the repo-root `.mcp.json`** (changed 2026-08-29).
+  The config carries `type: "stdio"` and a `timeout`, and Claude Code connects
+  on its own; no `--mcp-config` flag. This **reverses** the previous invariant,
+  which kept the file at `mcp/devdigest.mcp.json` precisely so it would *not* be
+  found automatically. That traded auto-connection away to avoid spawning the
+  server on every session in this repo; automatic connection is now the
+  requirement, and the old cost is accepted. Verify **inside** the session with
+  `/mcp` — **not** `claude mcp list`, which reports only persisted
+  user/project/local registrations.
 - **The DevDigest API must be running** (`./scripts/dev.sh`). That is the
   accepted trade-off of the HTTP-client design, and it is mitigated by an
   explicit error, not solved.
-- **The five descriptions in `server.ts` are verbatim from the approved plan.**
-  They are re-sent on every turn and were chosen for their effect on
-  tool-selection accuracy. Do not reword them to fit a budget —
-  `test/token-budget.test.ts` measures the real payload, and the plan carries an
-  ordered trim list.
+- **The five descriptions in `server.ts` are verbatim from the approved plan**,
+  except `get_findings`, corrected 2026-08-29 when the tool started returning
+  every review rather than the latest one. They are re-sent on every turn and
+  were chosen for their effect on tool-selection accuracy. Do not reword them to
+  fit a budget — `test/token-budget.test.ts` measures the real payload, and the
+  plan carries an ordered trim list. Correcting one that has become *factually
+  wrong* is the one legitimate reason to touch them: a description that
+  misdescribes its tool corrupts selection far more than its token cost.
 
 ## Gotchas
 
@@ -103,6 +106,6 @@ skill. The rings map cleanly even with no DB and no Fastify:
 
 | Doc | Read when |
 |---|---|
-| [`README.md`](README.md) | registering the server in a host, the measured token cost, or finishing the `get_blast_radius` homework |
+| [`README.md`](README.md) | registering the server in a host, the measured token cost, or how `get_blast_radius` is wired |
 | [`INSIGHTS.md`](INSIGHTS.md) | before changing a long-standing convention, or something behaves surprisingly |
 | [`../server/CLAUDE.md`](../server/CLAUDE.md) | you need to understand the API this consumes (read only — never edit from here) |

@@ -95,6 +95,72 @@ Wiring the tool cost 45 tokens (110 → 155) and left the suite at 1373/1600.
 Evidence: `mcp/src/tools/get-blast-radius.ts:29-38`, `mcp/src/shape.ts`.
 
 
+### 2026-08-29 — [Decision] The config moved to a repo-root `.mcp.json`, superseding the opt-in invariant
+
+`mcp/devdigest.mcp.json` was named that way *deliberately* so Claude Code would
+not auto-discover it, and you opted in per session with
+`claude --mcp-config mcp/devdigest.mcp.json`. That decision is **superseded**:
+the config is now `.mcp.json` at the repo root, carrying `type: "stdio"` and
+`timeout`, and the host connects on its own.
+
+What the old invariant bought — a repo where a plain `claude` never spawned the
+server — is genuinely lost, and that cost is accepted rather than solved.
+Automatic connection became the requirement. The *other* half of the old
+invariant still holds and was not touched: `scripts/dev.sh` must never launch
+this server, because an MCP stdio server is spawned by the host over a pipe and
+would otherwise sit with nothing on its stdin.
+
+Note `type` and `timeout` are not decoration — without `type: "stdio"` the host
+does not reliably infer the transport, which presents as a silent failure to
+connect rather than an error.
+Evidence: `.mcp.json`, `mcp/CLAUDE.md`, `mcp/README.md`.
+
+### 2026-08-29 — [Pattern] Env validation belongs in `config.ts`, and `loadConfig` must throw rather than exit
+
+`index.ts` read `process.env` directly with `?? default` fallbacks, so a
+malformed `DEVDIGEST_API_BASE` passed startup and failed later at the first
+`fetch` — a per-tool error that looked like the API was down. `src/config.ts`
+now parses the environment through zod once, following
+`server/src/platform/config.ts`.
+
+Two non-obvious details:
+
+- **`loadConfig` throws `ConfigError`; it never calls `process.exit`.** The exit
+  lives in `index.ts`. A `process.exit()` inside `loadConfig` would take the
+  vitest worker down with it the moment a test exercised the invalid-input path,
+  so the split is what makes fail-fast testable at all.
+- **`z.url()` does not strip a trailing slash.** `http://host:3001/` validates
+  happily and then builds `//pulls/...` downstream. The schema transforms it
+  away explicitly.
+
+Evidence: `mcp/src/config.ts`, `mcp/src/index.ts`, `mcp/test/config.test.ts`.
+
+### 2026-08-29 — [Decision] `get_findings` returns a list of reviews, and a false description is worth its tokens to fix
+
+`get_findings` collapsed a pull request to its single newest review and spread it
+flat. A PR has one review **per agent**, so every other agent's review was
+dropped with no signal it existed. It now returns
+`{ reviews: [...], total_findings }` with findings nested per review.
+
+`total_findings` sums the **full** per-review counts, not the truncated arrays —
+the same rule as `findings_count` — so truncation stays visible. `max_findings`
+stays a **per-review** cap; making it a global budget would starve whichever
+review was iterated last, depending on order.
+
+The reshape also forced a rule change. `mcp/CLAUDE.md` said the five tool
+descriptions are verbatim and must not be reworded; but this one now claimed to
+return "the latest completed review", which was false. A description that
+misdescribes its tool corrupts selection far worse than its token cost, so
+correcting a *factually wrong* description is now an explicit exception to that
+rule — distinct from rewording to fit a budget, which is still forbidden. The
+corrected wording measured 3 tokens **cheaper**.
+
+Budget after both changes: `get_findings` 403 → 430 of 450 (thin — 20 spare),
+total 1373 → 1400 of 1600.
+Evidence: `mcp/src/tools/get-findings.ts`, `mcp/src/shape.ts` (`shapeReviewList`),
+`mcp/src/server.ts` (`FindingsOut`).
+
+
 ## Recurring Errors & Fixes
 
 _Nothing recorded yet._
