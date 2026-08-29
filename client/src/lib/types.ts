@@ -44,6 +44,19 @@ export type {
   PrIntentRecord,
 } from "@devdigest/shared";
 
+/* The Why + Risk brief. TYPES ONLY, like everything else in this file: the
+   contracts are Zod objects, and importing one as a VALUE would pull the whole
+   `@devdigest/shared` barrel (and zod) into the browser bundle. */
+export type {
+  PrRiskBriefRecord,
+  RiskBriefLevel,
+  RiskBriefRiskItem,
+  RiskBriefFocusItem,
+  RiskBriefReference,
+  RiskBriefCounts,
+  RiskBriefInputEntry,
+} from "@devdigest/shared";
+
 /** UI-only view model for a PR list row (derives display fields from PrMeta). */
 export interface PrRowView {
   number: number;
