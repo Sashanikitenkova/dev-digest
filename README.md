@@ -79,7 +79,7 @@ These are intentionally **not** in the starter — each lesson adds one back:
 
 | Lesson | You build |
 |--------|-----------|
-| L01 | Run cost badge · severity filter on findings |
+| L01 | [Run cost badge](docs/lessons/L01-run-cost-badge.md) · severity filter on findings |
 | L02 | Skills in the product · Conventions extractor |
 | L03 | Intent layer · Smart Diff |
 | L04 | `devdigest-mcp` server · Blast Radius (reads `repo-intel`) |

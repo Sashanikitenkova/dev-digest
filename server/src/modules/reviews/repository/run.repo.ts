@@ -59,6 +59,7 @@ export async function listRunsForPull(
     duration_ms: run.durationMs,
     tokens_in: run.tokensIn,
     tokens_out: run.tokensOut,
+    cost_usd: run.costUsd,
     findings_count: run.findingsCount,
     grounding: run.grounding,
     ran_at: run.ranAt ? run.ranAt.toISOString() : null,
@@ -121,6 +122,8 @@ export async function createAgentRun(
     prId: string;
     provider: string | null;
     model: string | null;
+    /** Shared "Run Review" batch timestamp — see repository.ts. */
+    ranAt?: Date;
   },
 ): Promise<string> {
   const [row] = await db
@@ -133,6 +136,7 @@ export async function createAgentRun(
       model: values.model,
       status: 'running',
       source: 'local',
+      ...(values.ranAt ? { ranAt: values.ranAt } : {}),
     })
     .returning({ id: t.agentRuns.id });
   return row!.id;
@@ -146,6 +150,7 @@ export async function completeAgentRun(
     durationMs: number;
     tokensIn: number;
     tokensOut: number;
+    costUsd: number | null;
     findingsCount: number;
     grounding: string;
     /** Review score (0-100); null on failed/cancelled runs. */
@@ -163,6 +168,7 @@ export async function completeAgentRun(
       durationMs: values.durationMs,
       tokensIn: values.tokensIn,
       tokensOut: values.tokensOut,
+      costUsd: values.costUsd,
       findingsCount: values.findingsCount,
       grounding: values.grounding,
       score: values.score ?? null,

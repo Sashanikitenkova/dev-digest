@@ -129,6 +129,33 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
       }
     }
 
+    // Latest-review-ROUND COST per PR for the list's COST column. "Latest
+    // round" = the agent_runs rows sharing a PR's max ran_at — every run
+    // queued by one "Run Review" click shares a single ran_at (see
+    // ReviewService.runReview), so this isn't an all-time total. Same
+    // one-IN-query + JS-grouping shape as the score block above.
+    const latestRoundCostByPr = new Map<string, number | null>();
+    if (prIds.length > 0) {
+      const runRows = await container.db
+        .select({ prId: t.agentRuns.prId, ranAt: t.agentRuns.ranAt, costUsd: t.agentRuns.costUsd })
+        .from(t.agentRuns)
+        .where(inArray(t.agentRuns.prId, prIds));
+      const runsByPr = new Map<string, { ranAt: Date; costUsd: number | null }[]>();
+      for (const run of runRows) {
+        if (!run.prId) continue;
+        const list = runsByPr.get(run.prId) ?? [];
+        list.push({ ranAt: run.ranAt, costUsd: run.costUsd });
+        runsByPr.set(run.prId, list);
+      }
+      for (const [prId, prRuns] of runsByPr) {
+        const maxRanAt = Math.max(...prRuns.map((r) => r.ranAt.getTime()));
+        const latestRound = prRuns.filter((r) => r.ranAt.getTime() === maxRanAt);
+        const priced = latestRound.filter((r): r is { ranAt: Date; costUsd: number } => r.costUsd != null);
+        // null = the round has no priced runs yet, not "$0" — distinct states.
+        latestRoundCostByPr.set(prId, priced.length > 0 ? priced.reduce((sum, r) => sum + r.costUsd, 0) : null);
+      }
+    }
+
     const now = Date.now();
     return rows.map((r) => {
       const review = latestReviewByPr.get(r.id);
@@ -153,6 +180,7 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
         opened_at: r.openedAt?.toISOString() ?? null,
         updated_at: r.updatedAt?.toISOString() ?? null,
         score: review ? review.score : null,
+        cost_usd: latestRoundCostByPr.get(r.id) ?? null,
       };
     });
   });

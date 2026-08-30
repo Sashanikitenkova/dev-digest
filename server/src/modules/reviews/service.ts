@@ -114,6 +114,12 @@ export class ReviewService {
     // Create the agent_run rows up front so a runId is available IMMEDIATELY —
     // the client persists these in global state and subscribes to the SSE
     // stream. The actual (slow) review runs in the background below.
+    //
+    // Every run created here shares ONE `ranAt` (rather than each defaulting
+    // its own at insert time): it's how the PR list identifies "the latest
+    // review round" for the cost rollup — the agent_runs rows sharing a PR's
+    // max ran_at, not just the single most recent row.
+    const ranAt = new Date();
     const runs: { run_id: string; agent_id: string; agent_name: string }[] = [];
     const jobs: { agent: AgentRow; runId: string }[] = [];
     for (const agent of targets) {
@@ -123,6 +129,7 @@ export class ReviewService {
         prId,
         provider: agent.provider,
         model: agent.model,
+        ranAt,
       });
       runs.push({ run_id: runId, agent_id: agent.id, agent_name: agent.name });
       jobs.push({ agent, runId });
