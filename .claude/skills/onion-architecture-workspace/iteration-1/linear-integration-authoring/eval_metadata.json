@@ -1,0 +1,26 @@
+{
+  "eval_id": 4,
+  "eval_name": "linear-integration-authoring",
+  "prompt": "We want DevDigest to show Linear ticket context on a pull request. When a PR's branch name references a Linear issue (for example `feat/ENG-482-retry-budget`), the PR page should show that issue's title and current status. Plan the change for the DevDigest server and write the code for it. Write your implementation plan plus the full contents of every file you would add or change to OUTPUT_DIR/plan.md — one markdown file, with each file's path as a heading and its code in a fenced block. Do not edit anything in the repository itself.",
+  "assertions": [
+    "Defines a port interface in vendor/shared/adapters.ts before/alongside the concrete client",
+    "Places the concrete Linear client under server/src/adapters/",
+    "Wires the adapter into platform/container.ts including a ContainerOverrides field",
+    "Resolves the Linear API key through SecretsProvider rather than process.env or AppConfig",
+    "The service obtains the client from the container instead of importing the concrete class",
+    "The route handler contains no business branching and no direct data access",
+    "Registers the new module in server/src/modules/index.ts"
+  ],
+  "answer_key": {
+    "expected_steps": [
+      "Adds a LinearClient (or similar) port interface to server/src/vendor/shared/adapters.ts",
+      "Puts the concrete implementation under server/src/adapters/linear/",
+      "Adds a `linear?: LinearClient` field to ContainerOverrides",
+      "Adds a lazy accessor on Container that resolves the API key via SecretsProvider and constructs the adapter there",
+      "The service reaches the client via the container, never by importing the adapter class",
+      "routes.ts stays thin: Zod schema, getContext, one service call, response shaping",
+      "Registers the module with one import + one entry in server/src/modules/index.ts",
+      "Any persistence goes through a repository.ts, not inline Drizzle in the service"
+    ]
+  }
+}

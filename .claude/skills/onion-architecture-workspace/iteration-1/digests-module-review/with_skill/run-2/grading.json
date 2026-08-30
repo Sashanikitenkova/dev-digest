@@ -1,0 +1,118 @@
+{
+  "eval_name": "digests-module-review",
+  "run": "with_skill/run-2",
+  "expectations": [
+    {
+      "text": "Identifies that routes.ts performs data-access and/or business branching that belongs in the service",
+      "passed": true,
+      "evidence": "Finding H3, 'routes.ts owns the data layer and the business workflow' (routes.ts:6, 28, 33-46, 52): quotes `const repo = new DigestsRepository(app.container.db)`, `repo.findByPeriod`, the `if (existing && !req.body.regenerate)` branch and `repo.deleteById`. States 'the route does the period-window arithmetic (domain policy), the cache decision, the invalidation, and two direct repository calls; GET /digests never touches the service at all.' Fix: expose service.generate/service.listRecent and 'delete DigestsRepository from routes.ts entirely.' Matches planted V1.1 on all five cited lines."
+    },
+    {
+      "text": "Identifies that service.ts queries the database directly instead of going through the repository",
+      "passed": true,
+      "evidence": "Finding H2, 'service.ts queries Drizzle directly and imports db/schema.js' (service.ts:1, 5, 26-45, 51-54): 'The module already has a repository.ts, and the skill's rule is unambiguous... whose bad example is literally \"a service or route file with import * as t from '../../db/schema.js' and its own db.select()... inline\".' Fix: add mergedInPeriod() to repository.ts and drop drizzle-orm and db/schema.js from service.ts. Matches planted V1.2 (lines 5, 26, 51)."
+    },
+    {
+      "text": "Identifies that service.ts constructs the concrete OctokitGitHubClient adapter instead of resolving it from the container",
+      "passed": true,
+      "evidence": "Findings C2 and C3 (Critical). C2 'service.ts imports and constructs a concrete adapter' quotes service.ts:2 `import { OctokitGitHubClient } ...` and service.ts:58 `new OctokitGitHubClient(process.env.GITHUB_TOKEN ?? '')`, calls it a 'Direct Dependency Rule violation' and notes container.ts is the sole importer today. C3 covers the SecretsProvider half: 'Secrets read from process.env, bypassing SecretsProvider'. Fix for both: `await this.container.github()`. Matches planted V1.3 (lines 2, 58)."
+    },
+    {
+      "text": "Does NOT flag whole-Container constructor injection as a defect",
+      "passed": true,
+      "evidence": "Explicitly CLEARED in 'Checked and found clean — do not \"fix\" these': '**DigestsService taking the whole Container** (service.ts:21) is a documented, accepted compromise (guides/pitfalls-and-tradeoffs.md §\"descriptive, not aspirational\"), matching ReviewService/RisksService. Not a finding.' Absent from all 18 numbered findings."
+    },
+    {
+      "text": "Does NOT flag the row-type-as-DTO pattern as a defect",
+      "passed": true,
+      "evidence": "Finding L3 cites repository.ts:5 but opens by CLEARING the decoy in the answer key's own terms: 'Row-types-as-DTOs is a documented, accepted compromise here (guides/drizzle-repository-pattern.md §\"Row types are DTOs\") — not a bug.' The defect it then reports is a different, genuine one: periodStart/periodEnd/bodyMd are nullable in db/schema/ops.ts while the response implies non-null. It does not propose replacing the row type with a hand-modelled domain-entity layer; it suggests ('consider') a contract for null-safety at the HTTP boundary. Graded as cleared. This is the most borderline call across the four runs and is recorded verbatim in eval_feedback."
+    },
+    {
+      "text": "Every reported problem cites a specific file and line",
+      "passed": true,
+      "evidence": "The most consistently anchored of the four reviews: every one of the 18 findings names file plus line(s), including the absence findings — M1 cites 'server/src/modules/index.ts:32-49' and 'modules/index.ts:23-26', L2 cites 'server/src/db/schema/ops.ts:41-50'. Only M2 ('No tests') has no line, which is unanchorable by nature; it still names server/test/ and TESTING.md."
+    }
+  ],
+  "summary": {
+    "passed": 6,
+    "failed": 0,
+    "total": 6,
+    "pass_rate": 1.0
+  },
+  "finding_counts": {
+    "total_findings": 18,
+    "planted_detected": 3,
+    "decoys_flagged": 0,
+    "structural_findings": 6
+  },
+  "finding_counts_notes": {
+    "total_findings": "18 numbered findings (C1-C3, H1-H5, M1-M6, L1-L4). The 5-item 'Checked and found clean' list is not counted.",
+    "planted_detected": "V1.1 = H3; V1.2 = H2; V1.3 = C2 + C3 (the adapter import and the process.env secret read, both on service.ts:58).",
+    "decoys_flagged": "D1.1 explicitly cleared; D1.2 explicitly cleared inside L3 ('not a bug') before a separate nullability point is raised.",
+    "structural_findings": "C2 (adapter imported outside the composition root), C3 (secret bypassing the SecretsProvider port), H2 (Drizzle in the service), H3 (route owns repository + workflow), M1 (module absent from the static registry), L3 (raw row crossing the HTTP boundary)."
+  },
+  "execution_metrics": {
+    "total_tool_calls": 25,
+    "total_tokens": 83917,
+    "output_chars": 17587
+  },
+  "timing": {
+    "total_tokens": 83917,
+    "duration_ms": 264389,
+    "total_duration_seconds": 264.4,
+    "tool_uses": 25
+  },
+  "claims": [
+    {
+      "claim": "C1: OpenRouterProvider.complete() unconditionally throws, so POST /digests fails on the first PR every time",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Listed verbatim in answer_key.legitimate_extra_findings ('service.ts calls llm.complete(), but OpenRouterProvider.complete() unconditionally throws — the endpoint would 500 on every call'). This run is the only one of the four to find it, and it quotes reviewer-core/src/llm/openrouter.ts:196-198 as evidence."
+    },
+    {
+      "claim": "container.ts is the sole importer of OctokitGitHubClient today (container.ts:16)",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Confirmed: no server/src/modules/** file imports a concrete GitHub adapter class."
+    },
+    {
+      "claim": "H1: the repo is resolved once from merged[0].repoId and applied to every PR",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Listed in answer_key.legitimate_extra_findings ('the repo row is resolved once from merged[0].repoId and reused for every PR, so multi-repo workspaces resolve the wrong repository')."
+    },
+    {
+      "claim": "L1: POST /digests with no body 400s because an absent body validates undefined against an object schema",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Independently reported by without_skill/run-1 (finding 14), which cites server/INSIGHTS.md 2026-08-11 recording the same trap. Not in the answer key but a plausible real defect; not a decoy and not a rule the repo does not hold."
+    },
+    {
+      "claim": "The grounding gate does not apply to a prose digest",
+      "type": "quality",
+      "verified": true,
+      "evidence": "Correct scoping. groundFindings() is the invariant for diff-anchored Finding data; the run explicitly declines to apply it rather than manufacturing a finding, which is the right call under the repo's mandatory-grounding rule."
+    }
+  ],
+  "user_notes_summary": {
+    "uncertainties": [],
+    "needs_review": [],
+    "workarounds": []
+  },
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "Does NOT flag the row-type-as-DTO pattern as a defect",
+        "reason": "Hedge recorded verbatim per GRADING.md. L3 is titled 'Raw rows returned as the API contract', carries a Low severity and cites repository.ts:5 — the exact decoy line — yet its first sentence is 'Row-types-as-DTOs is a documented, accepted compromise here... not a bug', and the proposed change is scoped to nullability ('consider a small Digest contract in vendor/shared/contracts so the client gets a stable non-nullable shape'). I graded it cleared under GRADING.md's headline rule, but a stricter reading of the 'given a severity' clause would fail it. The eval would be less ambiguous if the assertion were phrased as 'does not claim the row type must be replaced by a hand-modelled domain entity'."
+      },
+      {
+        "reason": "No assertion covers the single most valuable finding in this run: C1, that OpenRouterProvider.complete() always throws so the feature is dead on arrival. Only one of the four runs found it. That is exactly the kind of outcome a discriminating assertion should reward, and it currently sits unmeasured in legitimate_extra_findings."
+      },
+      {
+        "assertion": "Every reported problem cites a specific file and line",
+        "reason": "Non-discriminating — all four runs pass. See the same note in the other three grading files."
+      }
+    ],
+    "overall": "All three planted violations detected, two of them as Critical; both decoys explicitly named as accepted compromises. Strongest run on grounding discipline (every finding line-anchored) and the only one to catch the always-throwing complete() that makes the module non-functional."
+  }
+}

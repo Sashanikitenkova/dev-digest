@@ -1,0 +1,42 @@
+{
+  "eval_id": 3,
+  "eval_name": "memory-clean-review",
+  "prompt": "A teammate has opened a PR adding a new `memory` module to the DevDigest server. The proposed files are in FIXTURE_DIR — treat them as the contents of `server/src/modules/memory/` in this repository. Review this PR before it is merged. Report every problem you find, most important first; for each one give the file and line, say what is wrong, and say what should be done about it. If you find nothing that needs changing, say so plainly. Write your review as markdown to OUTPUT_DIR/review.md.",
+  "assertions": [
+    "Reports ZERO structural or layering violations",
+    "Does NOT flag whole-Container constructor injection as a defect",
+    "Does NOT flag the row-type-as-DTO pattern as a defect",
+    "Does NOT flag the repository facade over per-aggregate files as needless indirection",
+    "Does NOT propose restructuring the module into a different folder shape"
+  ],
+  "answer_key": {
+    "planted": [],
+    "decoys": [
+      {
+        "id": "D3.1",
+        "text": "service.ts takes the whole Container in its constructor",
+        "why_not_a_bug": "documented, intentional convenience trade-off in this repo"
+      },
+      {
+        "id": "D3.2",
+        "text": "repository.ts exports MemoryRow ($inferSelect) and it is returned to route callers",
+        "why_not_a_bug": "row types doubling as DTOs is an accepted, documented compromise"
+      },
+      {
+        "id": "D3.3",
+        "text": "repository.ts is a thin facade over repository/item.repo.ts and repository/search.repo.ts",
+        "why_not_a_bug": "this is the prescribed facade-over-aggregate split, mirroring reviews/repository.ts — not needless indirection"
+      },
+      {
+        "id": "D3.4",
+        "text": "helpers.ts and constants.ts sit beside the service rather than in a shared utils folder",
+        "why_not_a_bug": "matches the repo-wide module shape {routes,service,repository,constants,helpers}.ts"
+      },
+      {
+        "id": "D3.5",
+        "text": "search failures are swallowed and degrade to an empty result",
+        "why_not_a_bug": "the documented degrade-gracefully convention for panels that render independently"
+      }
+    ]
+  }
+}

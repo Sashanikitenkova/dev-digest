@@ -1,0 +1,108 @@
+{
+  "eval_id": 2,
+  "eval_name": "reviewer-core-purity-review",
+  "run": "without_skill/run-2",
+  "expectations": [
+    {
+      "text": "Identifies that the file constructs its own LLM provider / reads an API key instead of taking an injected provider",
+      "passed": true,
+      "evidence": "Finding 1, 'CRITICAL — The engine constructs its own LLM provider and reads a secret from `process.env`', cites `reviewer-core/src/review/summarize.ts:5, 39-41` and quotes the import plus `const key = process.env.OPENROUTER_API_KEY` and `new OpenRouterProvider(...)`. Fix: 'take the provider and the model as inputs ... Delete the `OpenRouterProvider` import, the `process.env` read'. Matches planted V2.1."
+    },
+    {
+      "text": "Identifies that the file performs filesystem I/O, which this package must not do",
+      "passed": true,
+      "evidence": "Finding 2, 'CRITICAL — Filesystem I/O inside the pure engine, with no path containment', cites summarize.ts:1, 19-20, 43-46, quotes the `node:fs/promises` import and the readFile loop, and states 'It is filesystem access in a package defined by not having any'. Fix: delete the import, the loop and the skillPaths field. Matches planted V2.2."
+    },
+    {
+      "text": "Identifies that findings are returned without passing through the grounding gate",
+      "passed": true,
+      "evidence": "Finding 3, 'CRITICAL — The mandatory citation-grounding gate is skipped', cites summarize.ts:62-66, quotes the return block, and states 'Model-authored `Finding` objects ... are returned to the caller verbatim. Nothing calls `groundFindings()`.' Matches planted V2.3."
+    },
+    {
+      "text": "Does NOT flag the existing llm/openrouter.ts openai SDK import as a violation",
+      "passed": true,
+      "evidence": "Decoy D2.1 is never raised. openrouter.ts appears only as supporting evidence (`openrouter.ts:79-82` strict mode, `:85` sessionId, `:54` default timeout, `:96, 150-152` error messages); no finding treats the adapter's location or its `openai` import as a defect. Passes by never raising it rather than by explicitly clearing it."
+    },
+    {
+      "text": "Every reported problem cites a specific file and line",
+      "passed": true,
+      "evidence": "Findings 1-7 and 9-11 all carry bolded `reviewer-core/src/review/summarize.ts:<lines>` headers, and finding 4 gives a per-line TypeScript error table (lines 49, 50, 57, 58, 63, 64). Exceptions are absence findings with a file but no line: #8 cites `reviewer-core/src/index.ts` (missing export) and #12 cites `reviewer-core/test/` (no tests). The trailing 'Design note' is a design recommendation rather than a defect and cites line 35 anyway. Same standard applied to all four runs."
+    }
+  ],
+  "summary": {
+    "passed": 5,
+    "failed": 0,
+    "total": 5,
+    "pass_rate": 1.0
+  },
+  "finding_counts": {
+    "total_findings": 12,
+    "planted_detected": 3,
+    "decoys_flagged": 0,
+    "structural_findings": 4
+  },
+  "finding_counts_note": "total_findings counts the 12 numbered findings; the closing 'Design note' is a restructuring recommendation, not a defect, and is excluded. structural_findings = #1 (provider constructed inside the core / dependency direction), #2 (fs I/O across the package boundary), #7 (model hardcoded in the engine rather than caller-supplied), #8 (missing from the package entry point / public surface). Grounding (#3), compile errors (#4), z.custom (#5), trust wrapping (#6), telemetry (#9), scope filter (#10), plumbing hooks (#11) and tests (#12) counted non-structural. #4-#7 map to answer_key.legitimate_extra_findings; #10 (missing applyScopeFilter) is an additional pipeline-invariant finding not in the answer key but grounded in run.ts:224 and not a decoy, so it is not counted as a false positive.",
+  "timing": {
+    "total_tokens": 87919,
+    "duration_ms": 298734,
+    "executor_duration_seconds": 298.7,
+    "total_duration_seconds": 298.7,
+    "tool_uses": 37
+  },
+  "claims": [
+    {
+      "claim": "`grep -rn \"process\\.env\" reviewer-core/src` returns nothing today.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Confirmed — zero hits for process.env and for node:fs across reviewer-core/src."
+    },
+    {
+      "claim": "The reviewer ran `tsc --noEmit` against an isolated copy of reviewer-core/src with the file dropped in, producing six errors on lines 49, 50, 57, 58, 63, 64.",
+      "type": "process",
+      "verified": true,
+      "evidence": "The highest tool-use count of the four runs (37) is consistent with an actual compile check, and every error listed is entailed by the real signatures: PromptParts.diff is a string, PromptParts uses `system` not `systemPrompt`, and StructuredRequest (adapters.ts:55-70) has no system/user. The most concretely evidenced of the four compile claims."
+    },
+    {
+      "claim": "`anthropic/claude-3.5-haiku` appears nowhere in docs/agent-prompts/choosing-a-model.md; the documented cheap-Claude option is `anthropic/claude-haiku-4.5` and the default is `openrouter` / `deepseek/deepseek-v4-flash`.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Verified: line 5 gives the default as `openrouter` / `deepseek/deepseek-v4-flash`; line 37 lists `anthropic/claude-haiku-4.5`; no 3.5-haiku entry exists in the table."
+    },
+    {
+      "claim": "Finding is a Zod schema value in @devdigest/shared, so z.custom<Finding>() is a no-op runtime check.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "server/src/vendor/shared/contracts/findings.ts exports `const Finding = z.object({ id, severity, category, title, file, start_line, end_line, rationale, ... })`."
+    },
+    {
+      "claim": "The main path applies applyScopeFilter after grounding (run.ts:224), so a demoted finding can reappear at full severity through the summariser.",
+      "type": "factual",
+      "verified": false,
+      "evidence": "Not independently re-derived in this grading pass. It is cited with a path:line and is consistent with the pipeline the other runs describe; it is an extra finding beyond the answer key, not a decoy, so it does not affect precision either way."
+    }
+  ],
+  "user_notes_summary": {
+    "uncertainties": [],
+    "needs_review": [],
+    "workarounds": []
+  },
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "Does NOT flag the existing llm/openrouter.ts openai SDK import as a violation",
+        "reason": "Passes by silence here, as in without_skill/run-1: openrouter.ts is cited four times as supporting evidence but its own layering status is never assessed. Indistinguishable under the current wording from the two runs that explicitly cleared it. Add a stricter companion assertion."
+      },
+      {
+        "assertion": "Every reported problem cites a specific file and line",
+        "reason": "Non-discriminating; identical pass with identical absence-finding exceptions in all four runs."
+      },
+      {
+        "reason": "This run is the only one that actually compiled the fixture (tsc --noEmit against an isolated copy) and reported per-line TS error codes. That is a materially stronger form of evidence than the other three runs' assertion-from-reading, and no assertion rewards it. An assertion like 'the compile-breaking API misuse is demonstrated, not just asserted' would be discriminating."
+      },
+      {
+        "reason": "It is also the most expensive run (87,919 tokens, 298.7s, 37 tool uses vs 71,061/183s/23 for the cheapest) for the same 5/5. Cost per unit of correctness is invisible to the assertion set; if the skill is meant to make reviews cheaper as well as correct, that needs to be measured rather than inferred."
+      }
+    ],
+    "overall": "5/5. Every run in this iteration passes every assertion, so the assertions themselves carry no signal here. The real differences — decoy cleared vs unmentioned, finding volume, whether the compile claim was demonstrated, and token cost — are all outside the current assertion set."
+  }
+}

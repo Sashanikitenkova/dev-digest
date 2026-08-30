@@ -1,0 +1,202 @@
+{
+  "eval": "onion-architecture",
+  "fixture_root": "evals/fixtures",
+  "thresholds": {
+    "recall": 0.9,
+    "recall_note": "At least 14 of the 15 findings must be reported.",
+    "max_false_positives": 0,
+    "false_positive_note": "Counted over decoys D1, D3, D4, D5. D2 is scored separately: it may be raised as a nit, but never as a blocking finding."
+  },
+  "scoring": {
+    "counts_as_detected": "The review names the file and the defect. Wording need not match; severity and ordering are irrelevant. A finding buried among others still counts.",
+    "counts_as_false_positive": "The review presents a decoy as a defect, a violation, or something to fix or refactor. Explicitly clearing it, or never mentioning it, both count as clean.",
+    "not_counted_either_way": "Findings outside this key — correctness bugs, performance, security, tests, naming. The fixtures contain several genuine ones by design; they are neither rewarded nor penalised."
+  },
+  "findings": [
+    {
+      "id": "F01",
+      "file": "server/src/modules/digests/routes.ts",
+      "lines": [
+        28,
+        36,
+        43,
+        52
+      ],
+      "rule": "routes.ts is presentation-only — no direct repository calls",
+      "what": "The route constructs DigestsRepository itself and calls findByPeriod / deleteById / listRecent, bypassing the service."
+    },
+    {
+      "id": "F02",
+      "file": "server/src/modules/digests/routes.ts",
+      "lines": [
+        38,
+        42
+      ],
+      "rule": "routes.ts is presentation-only — no business branching",
+      "what": "The POST handler branches on domain state (cache hit vs regenerate) and owns the period arithmetic; that orchestration belongs in the service."
+    },
+    {
+      "id": "F03",
+      "file": "server/src/modules/digests/service.ts",
+      "lines": [
+        5,
+        32,
+        57
+      ],
+      "rule": "all Drizzle access for a domain lives in its repository.ts",
+      "what": "The service imports db/schema.js and runs its own select() queries although the module already has a repository."
+    },
+    {
+      "id": "F04",
+      "file": "server/src/modules/digests/service.ts",
+      "lines": [
+        2,
+        64
+      ],
+      "rule": "only platform/container.ts constructs concrete adapters",
+      "what": "The service imports OctokitGitHubClient and news it up instead of awaiting container.github()."
+    },
+    {
+      "id": "F05",
+      "file": "server/src/modules/digests/service.ts",
+      "lines": [
+        64
+      ],
+      "rule": "secrets resolve through SecretsProvider",
+      "what": "The GitHub token is read from process.env with an empty-string fallback, silently producing an unauthenticated client."
+    },
+    {
+      "id": "F06",
+      "file": "server/src/modules/digests/service.ts",
+      "lines": [
+        6,
+        83
+      ],
+      "rule": "callers go through the repository facade, never into repository/<aggregate>.repo.ts",
+      "what": "The service imports memory's search.repo.js directly, reaching past MemoryRepository and into another module's data layer."
+    },
+    {
+      "id": "F07",
+      "file": "server/src/modules/digests/",
+      "lines": [],
+      "rule": "a new module is registered once in modules/index.ts",
+      "what": "The module is never added to the static registry, so both routes 404 as shipped."
+    },
+    {
+      "id": "F08",
+      "file": "reviewer-core/src/review/summarize.ts",
+      "lines": [
+        39,
+        41
+      ],
+      "rule": "reviewer-core never constructs providers or reads keys — the LLMProvider arrives injected",
+      "what": "It reads process.env.OPENROUTER_API_KEY and constructs its own OpenRouterProvider."
+    },
+    {
+      "id": "F09",
+      "file": "reviewer-core/src/review/summarize.ts",
+      "lines": [
+        1,
+        45
+      ],
+      "rule": "reviewer-core has zero filesystem, DB or GitHub access",
+      "what": "It imports node:fs/promises and reads skill bodies off disk instead of receiving resolved strings."
+    },
+    {
+      "id": "F10",
+      "file": "reviewer-core/src/review/summarize.ts",
+      "lines": [
+        64
+      ],
+      "rule": "the citation-grounding gate is mandatory for diff-anchored findings",
+      "what": "It returns result.data.findings straight from the model without routing them through groundFindings()."
+    },
+    {
+      "id": "F11",
+      "file": "reviewer-core/src/review/summarize.ts",
+      "lines": [
+        7
+      ],
+      "rule": "model choice is caller policy, not core logic",
+      "what": "The model id is hardcoded inside the pure engine rather than supplied by the caller."
+    },
+    {
+      "id": "F12",
+      "file": "reviewer-core/src/review/summarize.ts",
+      "lines": [],
+      "rule": "public surface is the explicitly enumerated barrel",
+      "what": "summarizeReview is never exported from reviewer-core/src/index.ts, so it is unreachable dead code."
+    },
+    {
+      "id": "F13",
+      "file": "server/src/modules/memory/repository/item.repo.ts",
+      "lines": [
+        4
+      ],
+      "rule": "aggregate files do not import back from the facade that composes them",
+      "what": "item.repo.ts and search.repo.ts import types from ../repository.js, which imports both back — a cycle reviews/ avoids by putting shared row types in db/rows.ts.",
+      "also_in": [
+        "server/src/modules/memory/repository/search.repo.ts:4"
+      ]
+    },
+    {
+      "id": "F14",
+      "file": "server/test/digests-service.test.ts",
+      "lines": [
+        2,
+        25
+      ],
+      "rule": "test placement mirrors the ring — a DB-backed test is *.it.test.ts",
+      "what": "The test calls startPg() and drives a real Postgres, but is named *.test.ts, so the unit lane picks it up and the integration lane misses it."
+    },
+    {
+      "id": "F15",
+      "file": "server/src/modules/digests/helpers.ts",
+      "lines": [
+        1
+      ],
+      "rule": "never import another module's data layer — cross-module row types come from db/rows.ts",
+      "what": "helpers.ts imports `type { MemoryRow } from '../memory/repository.js'`, reaching into another module's data layer for a row shape. db/rows.ts exists so consumers can reference a row type without that import, and says so in its own doc comment.",
+      "distinct_from": "F06, which is a separate location and a separate rule: F06 is a VALUE import of `nearest` from memory/repository/search.repo.ts in service.ts, bypassing the MemoryRepository facade. F15 is a TYPE import from memory/repository.ts in helpers.ts. A review that only reports the service.ts import has NOT detected F15 — credit F15 only if helpers.ts is named."
+    }
+  ],
+  "decoys": [
+    {
+      "id": "D1",
+      "file": "server/src/modules/digests/service.ts",
+      "what": "The service constructor takes the whole Container rather than narrowly-scoped ports.",
+      "why_not_a_defect": "A documented, intentional convenience trade-off in this repo. Port-level segregation happens one level down, inside Container's typed getters and ContainerOverrides.",
+      "counts_as_false_positive_if": "reported as an interface-segregation or testability defect"
+    },
+    {
+      "id": "D2",
+      "file": "server/src/modules/digests/repository.ts",
+      "what": "DigestRow ($inferSelect) is returned to callers as the response shape.",
+      "why_not_a_defect": "Row types doubling as DTOs is an accepted, documented compromise.",
+      "scored_separately": true,
+      "counts_as_false_positive_if": "reported as a BLOCKING defect. Raising it as a nit is acceptable — the repo genuinely has five toXDto mappers (repos, agents, intent, conventions, brief), so arguing for a DTO here is defensible. Only a blocker is wrong."
+    },
+    {
+      "id": "D3",
+      "file": "server/src/modules/memory/repository.ts",
+      "what": "repository.ts is a thin facade over repository/item.repo.ts and repository/search.repo.ts.",
+      "why_not_a_defect": "This is the prescribed facade-over-aggregate split, mirroring reviews/repository.ts.",
+      "counts_as_false_positive_if": "called premature, needless indirection, or a divergence from the module shape; or collapsing it is proposed",
+      "known_skill_defect": "guides/pitfalls-and-tradeoffs.md warns against scaffolding a facade for a module needing only two queries, which contradicts guides/drizzle-repository-pattern.md. Runs WITH the skill have quoted that warning to attack this decoy. Until the skill resolves the contradiction, D3 is expected to fail — it is a live regression test for that defect, not noise."
+    },
+    {
+      "id": "D4",
+      "file": "reviewer-core/src/llm/openrouter.ts",
+      "what": "A concrete adapter importing the openai SDK lives inside the pure reviewer-core package.",
+      "why_not_a_defect": "A documented deliberate exception — both consumers need it, and it is only ever constructed at each consumer's composition root.",
+      "counts_as_false_positive_if": "reported as a purity or layering violation. Note this file is NOT part of the fixture; it is real repository code the reviewer will encounter while reading context."
+    },
+    {
+      "id": "D5",
+      "file": "server/src/modules/memory/service.ts",
+      "what": "embedOrNull swallows embedder failures and search degrades to an empty result.",
+      "why_not_a_defect": "The documented degrade-gracefully convention for panels that render independently.",
+      "counts_as_false_positive_if": "reported as a layering or structural defect. Arguing for logging is a legitimate correctness nit and does not count."
+    }
+  ]
+}

@@ -1,0 +1,118 @@
+{
+  "eval_name": "memory-clean-review",
+  "run": "without_skill/run-2",
+  "expectations": [
+    {
+      "text": "Reports ZERO structural or layering violations",
+      "passed": false,
+      "evidence": "The 'Checked and clean' section is strong on layering ('routes → service → repository with no shortcuts: routes never touch `db`, the service never imports `drizzle-orm`, and the repository is the only layer touching `t.memory`'), but two findings are structural. Finding 10, 'Circular import between `repository.ts` and its `repository/*.repo.ts` children', is a dependency-direction finding in the 'Should fix before merge' tier with a prescribed change: 'Fix: move `MemoryRow` into `db/rows.ts` ... and move `InsertMemory` / `NearestOptions` down into the leaf files, or into a small `repository/types.ts`.' Finding 13 is a module-shape finding: '`repository/` split is premature here.' Two structural findings against a structurally-correct module."
+    },
+    {
+      "text": "Does NOT flag whole-Container constructor injection as a defect",
+      "passed": true,
+      "evidence": "Explicitly cleared under 'Checked and clean': '**Wiring.** `new MemoryService(app.container)` in the route and `new MemoryRepository(container.db)` in the service constructor is exactly what all eleven existing modules do (`risks/service.ts:20`, `conventions/service.ts:87`, …). No adapter is constructed outside `platform/container.ts`.' Not present in any of the nineteen findings."
+    },
+    {
+      "text": "Does NOT flag the row-type-as-DTO pattern as a defect",
+      "passed": true,
+      "evidence": "Finding 4 is scoped to the payload, not the pattern: its title is 'Every response ships the raw 1536-float embedding' and its argument is entirely about size — 'At the default limit of 8 that is ~12k floats serialised as JSON — on the order of 200 KB of response body per search, for a vector no client can use.' The DTO appears only as the remedy ('add a `toMemoryDto` to `helpers.ts`'), citing a real precedent (`conventions/helpers.ts` `toConventionDto`, verified present at conventions/helpers.ts:119). The review never claims that a row type doubling as a DTO is itself wrong and never asks for a domain-entity layer."
+    },
+    {
+      "text": "Does NOT flag the repository facade over per-aggregate files as needless indirection",
+      "passed": false,
+      "evidence": "FLAGGED. Finding 13 (Minor/nits): '**`repository/` split is premature here.** `reviews/` sets the precedent, but it splits ~500 lines across four aggregates. `memory` splits four one-line functions across two files and then needs a pure pass-through class (`repository.ts:32-50`) to reassemble them. `conventions/`, `risks/`, `context/`, `brief/` all keep a single `repository.ts`. Not blocking — but a flat `repository.ts` would be less indirection for the same result, and the module can split later when it earns it.' It calls the split premature AND proposes flattening, so it is flagged rather than hedged despite the 'Not blocking' qualifier — the hedged category requires no proposed change. Note the review is at least accurate about the precedent (it correctly identifies reviews/ as the reference rather than claiming the repo is uniformly flat)."
+    },
+    {
+      "text": "Does NOT propose restructuring the module into a different folder shape",
+      "passed": false,
+      "evidence": "Finding 13 proposes flattening the module: 'a flat `repository.ts` would be less indirection for the same result, and the module can split later when it earns it.' Finding 10 additionally proposes moving `MemoryRow` out of the module into `db/rows.ts` and relocating `InsertMemory`/`NearestOptions` into the leaf files or a new `repository/types.ts`. The review does correctly clear D3.4: '**File layout.** `constants.ts` + a pure, I/O-free `helpers.ts` matches `risks/`, `brief/`, `conventions/`, `context/`.'"
+    }
+  ],
+  "summary": {
+    "passed": 3,
+    "failed": 2,
+    "total": 5,
+    "pass_rate": 0.6
+  },
+  "finding_counts": {
+    "total_findings": 19,
+    "planted_detected": 0,
+    "decoys_flagged": 1,
+    "structural_findings": 2
+  },
+  "structural_findings_detail": [
+    {
+      "id": "10",
+      "severity": "Should fix before merge",
+      "treatment": "flagged",
+      "text": "Circular import between `repository.ts` and its `repository/*.repo.ts` children. 'It is type-only so it is erased at emit and won't break at runtime — but the identical precedent in `reviews/` deliberately avoids it ... Fix: move `MemoryRow` into `db/rows.ts` ... and move `InsertMemory` / `NearestOptions` down into the leaf files, or into a small `repository/types.ts`.'"
+    },
+    {
+      "id": "13",
+      "severity": "Minor/nit",
+      "treatment": "flagged (decoy D3.3)",
+      "text": "`repository/` split is premature here. '`memory` splits four one-line functions across two files and then needs a pure pass-through class (`repository.ts:32-50`) to reassemble them ... Not blocking — but a flat `repository.ts` would be less indirection for the same result, and the module can split later when it earns it.'"
+    }
+  ],
+  "structural_counting_rule": "A finding counts as structural when its subject is layering, file placement, module shape, or dependency direction. Excluded uniformly across all four runs: the scope/kind enum-duplication finding (substance is drift/DRY, even though its fix touches where types live) and the 'no tests shipped' finding (substance is coverage, not placement).",
+  "execution_metrics": {
+    "total_tool_calls": 23,
+    "total_tokens": 80828,
+    "output_chars": 14790
+  },
+  "timing": {
+    "total_tokens": 80828,
+    "duration_ms": 272467,
+    "executor_duration_seconds": 272.5,
+    "total_duration_seconds": 272.5,
+    "tool_uses": 23
+  },
+  "claims": [
+    {
+      "claim": "reviews/ sets the precedent but splits ~500 lines across four aggregates; conventions/, risks/, context/, brief/ all keep a single repository.ts",
+      "type": "factual",
+      "verified": true,
+      "evidence": "reviews/repository/ contains review.repo.ts, run.repo.ts, pull.repo.ts and skill-stats.repo.ts (four files); conventions/, risks/, context/, brief/ each have a single flat repository.ts. Unlike without_skill/run-1, this run states the precedent correctly — it flags D3.3 on proportionality grounds rather than on a false 'all modules are flat' premise."
+    },
+    {
+      "claim": "reviews/repository/pull.repo.ts:4 imports its row types from db/rows.ts, whose docstring explains row types live next to the schema",
+      "type": "factual",
+      "verified": true,
+      "evidence": "reviews/repository.ts:17 imports FindingRow/PullRow from db/rows.js and re-exports them; reviews/repository/review.repo.ts:7 declares ReviewRow locally. The one-directional dependency claim holds."
+    },
+    {
+      "claim": "There is a matching client nav entry already waiting for the module — client/src/components/app-shell/helpers.ts:36",
+      "type": "factual",
+      "verified": false,
+      "evidence": "Not verified in this grading pass; the reviewer read the real repo and the claim is plausible, but it is incidental to the finding (the module-registration bug stands on modules/index.ts alone)."
+    },
+    {
+      "claim": "markUsed is the sole exception to workspace scoping in the module",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Correct against the fixture: item.repo.ts:24 uses where(inArray(t.memory.id, ids)) with no workspaceId predicate, while insertItem, deleteItem and nearest are all workspace-scoped."
+    },
+    {
+      "claim": "No ANN index on memory.embedding; 0000_init.sql:407 creates only memory_ws_idx",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Independently reported by all four runs and consistent with the eval's list of genuine functional bugs."
+    }
+  ],
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "Does NOT flag the repository facade over per-aggregate files as needless indirection",
+        "reason": "This run failed the assertion in the mildest way available — 'Not blocking', accurate about the reviews/ precedent, and demoted to the nits section — yet it scores identically to without_skill/run-1, which promoted the same complaint to 'Should fix before merge' on a false premise ('all sixteen existing modules are flat'). If the eval is meant to drive skill iteration, a graded severity band (cleared / hedged / nit-flagged / blocking-flagged) would carry far more signal than the current binary."
+      },
+      {
+        "assertion": "Reports ZERO structural or layering violations",
+        "reason": "The fixture's type-only import cycle between repository.ts and repository/*.repo.ts is a real dependency-direction wrinkle that is not listed in answer_key.decoys, and all four runs found it. The assertion therefore fails 4/4 and measures nothing. Decoy it (with the rationale that erased type imports are harmless) or break the cycle in the fixture by moving the shared types to a types.ts — the second option also removes an easy excuse for a structural finding."
+      },
+      {
+        "reason": "No assertion covers whether the review found the genuine functional bugs. All four runs found the module-registration gap, the eq(repoId) NULL filter, the unguarded await markUsed and the embedding payload, but a review that reported only 'no structural violations' and missed all four would score 5/5 here. A companion assertion such as 'identifies the repoId equality filter hiding NULL-scoped rows' would stop a lazily-silent review from passing this eval outright."
+      }
+    ],
+    "overall": "The decoy assertions (2-5) do their job; assertion 1 is non-discriminating because of an ungraded structural wrinkle in the fixture, and nothing in the assertion set rewards actually finding the real bugs."
+  }
+}

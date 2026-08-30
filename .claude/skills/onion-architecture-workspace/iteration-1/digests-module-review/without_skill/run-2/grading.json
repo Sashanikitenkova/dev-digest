@@ -1,0 +1,128 @@
+{
+  "eval_name": "digests-module-review",
+  "run": "without_skill/run-2",
+  "expectations": [
+    {
+      "text": "Identifies that routes.ts performs data-access and/or business branching that belongs in the service",
+      "passed": true,
+      "evidence": "Blocking finding 1, 'The route drives the repository and owns the business logic — routes.ts:28, 33-34, 36, 42-46, 52': quotes `const repo = new DigestsRepository(app.container.db)   // :28` and states 'The route then computes the period (:33-34), decides the cache hit (:38), deletes the old row (:43) and reads the list (:52) straight off the repository. That is three layers collapsed into the transport layer.' Backed by eleven counter-example call sites. Fix: give the service generate()/list() and 'Delete the DigestsRepository import from routes.ts entirely.' Matches planted V1.1 on every cited line (28, 36, 38, 43, 52)."
+    },
+    {
+      "text": "Identifies that service.ts queries the database directly instead of going through the repository",
+      "passed": true,
+      "evidence": "Blocking finding 3, 'The service queries the database directly — service.ts:1, 5, 26-45, 51-54': 'DigestsService imports drizzle-orm and db/schema.js and runs two select() chains against t.pullRequests and t.repos on this.container.db, while a DigestsRepository sits right next to it holding only the trivial queries.' Adds a grep-based check: 'grep for db/schema under modules/ returns repositories... no */service.ts.' Fix: add listMergedInPeriod() to repository.ts. Matches planted V1.2 exactly (lines 5, 26, 51)."
+    },
+    {
+      "text": "Identifies that service.ts constructs the concrete OctokitGitHubClient adapter instead of resolving it from the container",
+      "passed": true,
+      "evidence": "Blocking finding 2, 'The service builds its own GitHub adapter from process.env — service.ts:2, 58': quotes `new OctokitGitHubClient(process.env.GITHUB_TOKEN ?? '')` and lists 'Adapters are constructed in platform/container.ts, nowhere else', 'Secrets never come from process.env in module code', and the silent `?? ''` degradation. Fix: `await this.container.github()`. Matches planted V1.3 on both lines 2 and 58."
+    },
+    {
+      "text": "Does NOT flag whole-Container constructor injection as a defect",
+      "passed": true,
+      "evidence": "Never raised. grep for 'whole Container', 'entire container', 'interface segregation' and 'service.ts:21' returns nothing across the 19 findings; the only Container references are `ContainerOverrides.github` (finding 2) and `container.jobs.enqueue` (finding 7), both used approvingly. Not flagged, so the negative assertion holds — though, as with without_skill/run-1, by silence rather than by an explicit clearing."
+    },
+    {
+      "text": "Does NOT flag the row-type-as-DTO pattern as a defect",
+      "passed": false,
+      "evidence": "FLAGGED. Medium finding 13, 'Raw Drizzle rows are returned as the API payload — routes.ts:39, 47, 52': '`{ digest: existing }` and `{ digests: [...] }` serialise the DB row shape verbatim... The house contract is a snake_case DTO defined in @devdigest/shared and mapped by a toXDto helper — repos/helpers.ts:44, conventions/helpers.ts:119, agents/helpers.ts:19, brief/helpers.ts:539, intent/helpers.ts:250. **Do:** add a `Digest` contract + `toDigestDto` in helpers.ts and map both responses.' Severity band plus an explicit 'should be changed to' for exactly decoy D1.2's behaviour, with no clearing anywhere — the 'What is fine' section covers helpers.ts purity, constants.ts, repository workspace scoping, Zod validation and the file layout, but not the row type. Fails under GRADING.md's Flagged rule."
+    },
+    {
+      "text": "Every reported problem cites a specific file and line",
+      "passed": true,
+      "evidence": "18 of 19 findings put file:line in the heading (e.g. 'service.ts:51-63', 'repository.ts:14-40 + routes.ts:33-34', 'db/schema/ops.ts:48', 'helpers.ts:3'). Finding 12 anchors the registration gap to server/src/modules/index.ts and cites lines 19-23 in the body; finding 17 anchors the missing index to server/src/db/schema/ops.ts:41-49 — the best-cited absence findings of the four runs. The only unanchored item is finding 16 ('No tests — whole module'), which has no line to cite. Same standard applied to all four runs."
+    }
+  ],
+  "summary": {
+    "passed": 5,
+    "failed": 1,
+    "total": 6,
+    "pass_rate": 0.83
+  },
+  "finding_counts": {
+    "total_findings": 19,
+    "planted_detected": 3,
+    "decoys_flagged": 1,
+    "structural_findings": 6
+  },
+  "finding_counts_notes": {
+    "total_findings": "19 numbered findings (4 Blocking, 7 High, 5 Medium, 3 Low). The 5-item 'What is fine' list is not counted.",
+    "planted_detected": "V1.1 = finding 1; V1.2 = finding 3; V1.3 = finding 2.",
+    "decoys_flagged": "D1.2 flagged as finding 13 with a proposed Digest contract + toDigestDto. D1.1 not flagged (and not cleared).",
+    "structural_findings": "Findings 1 (route owns repository + workflow), 2 (adapter construction outside the composition root), 3 (Drizzle in the service), 8 (in part: 'move prompt assembly into a prompt.ts next to the service' — file placement), 12 (module absent from the static registry), 13 (raw rows as the API payload)."
+  },
+  "execution_metrics": {
+    "total_tool_calls": 27,
+    "total_tokens": 87723,
+    "output_chars": 16610
+  },
+  "timing": {
+    "total_tokens": 87723,
+    "duration_ms": 276943,
+    "total_duration_seconds": 276.9,
+    "tool_uses": 27
+  },
+  "claims": [
+    {
+      "claim": "The house contract is a snake_case DTO defined in @devdigest/shared and mapped by a toXDto helper",
+      "type": "factual",
+      "verified": false,
+      "evidence": "Half true, and overstated as 'the house contract'. The five toXDto call sites it cites do exist (repos/helpers.ts:44, agents/helpers.ts:19, intent/helpers.ts:250, conventions/helpers.ts:119, brief/helpers.ts:539), but the codebase equally exports `$inferSelect` row types from repositories as the outward type (reviews/repository.ts:20, plus RepoRow in context/, smart-diff/, blast/, conventions/, brief/, intent/). Per the answer key, row-types-as-DTOs is an accepted documented compromise, so presenting a mapper as mandatory asserts a rule the repository does not uniformly hold."
+    },
+    {
+      "claim": "No service in this codebase imports db/schema — grep under modules/ returns repositories, _shared/schemas.ts, three route files and settings/feature-models.ts",
+      "type": "process",
+      "verified": true,
+      "evidence": "Consistent with an independent grep of server/src/modules: schema access is confined to repository files (RepoRow/$inferSelect exports) with no modules/*/service.ts hit. The claim is specific enough to be checkable and it holds."
+    },
+    {
+      "claim": "Finding 4: the GitHub call is unnecessary because pull_requests.body is already persisted (db/schema/pulls.ts:27)",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Independently reached by with_skill/run-1 (finding 8), which cites db/schema/pulls.ts:26 and the writer at modules/pulls/routes.ts:260/288. A real simplification that also dissolves the adapter violation."
+    },
+    {
+      "claim": "Finding 5: the containment predicate means `POST /digests {periodDays: 90}` matches last week's 7-day digest and returns it as cached",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Corresponds to answer_key.legitimate_extra_findings ('findByPeriod uses a containment range match while its doc comment claims exact-boundary matching'); this run works out the concrete wrong-result scenario rather than only the mismatch."
+    },
+    {
+      "claim": "Finding 15: model output is spliced into markdown unescaped, so a summary with a leading '-' or a link breaks the document",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Grounded in service.ts:71 with the exact template string quoted. Also raised as a minor item by without_skill/run-1. Genuine, not a decoy."
+    },
+    {
+      "claim": "Adding a FEATURE_MODELS entry requires a three-file sync (both vendored platform.ts copies plus client/src/lib/feature-models.ts)",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Consistent with the root CLAUDE.md's statement that @devdigest/shared is vendored rather than workspace-linked, so the copies must be kept in sync; the run attributes it to server/INSIGHTS.md 2026-08-11."
+    }
+  ],
+  "user_notes_summary": {
+    "uncertainties": [],
+    "needs_review": [],
+    "workarounds": []
+  },
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "Does NOT flag the row-type-as-DTO pattern as a defect",
+        "reason": "The clearest failure of this decoy across the four runs — and the only assertion in the whole set that separated the configurations. Keep it. Note, though, that this run backs its claim with five real toXDto call sites, so the fixture's decoy is genuinely contestable; the answer key should either say why digests is unlike repos/brief/intent, or the decoy should be moved to a module where no mapper precedent exists."
+      },
+      {
+        "assertion": "Does NOT flag whole-Container constructor injection as a defect",
+        "reason": "Passed by omission — the review never examines the constructor. Both without_skill runs pass this way while both with_skill runs pass by explicitly reasoning about and clearing it. As written the assertion cannot tell those two behaviours apart, which is probably the opposite of what it was built to measure."
+      },
+      {
+        "reason": "Nothing in the assertion set penalises missing the module's fatal defect. This run never notices that OpenRouterProvider.complete() always throws (answer key line 1 of legitimate_extra_findings), so it ships a 'request changes' review of a feature that cannot run at all — an outcome no assertion registers."
+      },
+      {
+        "assertion": "Every reported problem cites a specific file and line",
+        "reason": "Non-discriminating — all four runs pass."
+      }
+    ],
+    "overall": "Detects all three planted violations, each with strong corroborating evidence (eleven counter-example call sites for the route violation, a grep for the service/schema rule). Loses the row-type-as-DTO decoy assertion by proposing a Digest contract + toDigestDto, and asserts a 'house contract' mapper rule the repo holds only in about half its modules."
+  }
+}

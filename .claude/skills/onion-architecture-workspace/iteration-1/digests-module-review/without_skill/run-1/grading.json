@@ -1,0 +1,119 @@
+{
+  "eval_name": "digests-module-review",
+  "run": "without_skill/run-1",
+  "expectations": [
+    {
+      "text": "Identifies that routes.ts performs data-access and/or business branching that belongs in the service",
+      "passed": true,
+      "evidence": "Blocking finding 3, 'routes.ts:27-48 — the route layer owns a repository and the business logic': quotes `const repo = new DigestsRepository(app.container.db)` and states 'The handler computes the period, does the cache lookup, decides on the rebuild, deletes the stale row, and only then calls the service.' Notes DigestsRepository is constructed twice (routes.ts:28 and service.ts:22). Fix: move the period computation, cache check and regenerate branch into DigestsService and 'Delete the repository construction from routes.ts'. Matches planted V1.1."
+    },
+    {
+      "text": "Identifies that service.ts queries the database directly instead of going through the repository",
+      "passed": true,
+      "evidence": "Blocking finding 4, 'service.ts:26-45, 51-54 — raw Drizzle in the service, and an unscoped tenant read': 'The service issues two hand-written container.db.select() queries. That is the repository's job — the module already has a repository.ts that does not contain these queries, which is what makes the layering violation load-bearing rather than cosmetic.' Fix: add mergedInWindow() and repoById() to DigestsRepository. Matches planted V1.2 (the import on line 5 is not called out separately, but lines 26 and 51 are)."
+    },
+    {
+      "text": "Identifies that service.ts constructs the concrete OctokitGitHubClient adapter instead of resolving it from the container",
+      "passed": true,
+      "evidence": "Blocking finding 2, 'service.ts:58 — adapter built by hand from process.env, with an empty-string fallback': quotes `new OctokitGitHubClient(process.env.GITHUB_TOKEN ?? '')`, names 'Adapter construction outside the composition root' and 'Secrets bypass' as the first two of four problems, and notes 'nothing else in src/modules/** imports a concrete adapter class'. Fix: `await this.container.github()`. Matches planted V1.3 (line 58; the import on line 2 is implied by 'imports a concrete adapter class' rather than cited separately)."
+    },
+    {
+      "text": "Does NOT flag whole-Container constructor injection as a defect",
+      "passed": true,
+      "evidence": "The pattern is never raised. grep across the review for 'whole Container', 'entire container', 'interface segregation' and 'service.ts:21' returns nothing; DigestsService's constructor signature is not among the 23 reported items. Not flagged, so the negative assertion holds. (Unlike the two with_skill runs, it is also not explicitly cleared — this review is silent on it rather than affirmative.)"
+    },
+    {
+      "text": "Does NOT flag the row-type-as-DTO pattern as a defect",
+      "passed": false,
+      "evidence": "FLAGGED. Finding 16 under 'Should fix before merge': 'routes.ts:39, 47, 52 — raw DB rows are the API contract. DigestRow is `typeof t.digests.$inferSelect`, so the response ships deliveredTo ... Every other module returns a Zod-defined contract from vendor/shared (e.g. PrRiskBriefRecord in modules/brief/routes.ts:3), which is what keeps the client from binding to the schema. **Fix:** define a `Digest` record in vendor/shared/contracts, map in the service, and declare it as the route's return type.' This is decoy D1.2's prohibited move — proposing a parallel hand-modelled contract layer — given a severity band and a concrete 'should be changed to' fix, with no clearing statement anywhere (the 'Checked and clean' section covers migrations, Zod coercion, getContext, service construction, helper purity and import style, but not the row type). Fails under GRADING.md's Flagged rule."
+    },
+    {
+      "text": "Every reported problem cites a specific file and line",
+      "passed": true,
+      "evidence": "All 16 numbered findings and 5 of the 7 'Minor / follow-ups' bullets carry file:line locators (e.g. 'service.ts:51-63', 'repository.ts:24-40 + routes.ts:33-44', 'constants.ts:10-12', 'repository.ts:56-60'). Finding 8 anchors the registration gap to server/src/modules/index.ts lines 23-26. The unanchored items are the two absence-of-artifact notes — finding 9 ('No tests', cites server/test/) and the 'Schema follow-up' and 'No docs / no client' bullets — which have no line to cite and, in the last case, is explicitly labelled 'Fine if the UI is a follow-up PR'. Judged by the same standard applied to all four runs: every finding about code present in the fixture is line-anchored."
+    }
+  ],
+  "summary": {
+    "passed": 5,
+    "failed": 1,
+    "total": 6,
+    "pass_rate": 0.83
+  },
+  "finding_counts": {
+    "total_findings": 23,
+    "planted_detected": 3,
+    "decoys_flagged": 1,
+    "structural_findings": 6
+  },
+  "finding_counts_notes": {
+    "total_findings": "16 numbered findings (9 Blocking, 7 'Should fix before merge') plus 7 'Minor / follow-ups' bullets = 23 reported items. The 6-item 'Checked and clean' list is not counted.",
+    "planted_detected": "V1.1 = finding 3; V1.2 = finding 4; V1.3 = finding 2.",
+    "decoys_flagged": "D1.2 flagged as finding 16 with a proposed vendor/shared contract layer. D1.1 not flagged (and not cleared).",
+    "structural_findings": "Findings 2 (adapter construction outside the composition root), 3 (route owns repository + business logic), 4 (raw Drizzle in the service), 8 (module absent from the static registry), 16 (raw rows as the API contract), and the minor bullet 'constants.ts:10-12 — stable instruction text lives in src/prompts/*.md or a module prompt.ts, not in constants.ts' (file placement)."
+  },
+  "execution_metrics": {
+    "total_tool_calls": 22,
+    "total_tokens": 84799,
+    "output_chars": 18017
+  },
+  "timing": {
+    "total_tokens": 84799,
+    "duration_ms": 286835,
+    "total_duration_seconds": 286.8,
+    "tool_uses": 22
+  },
+  "claims": [
+    {
+      "claim": "Every other module returns a Zod-defined contract from vendor/shared rather than a raw row",
+      "type": "factual",
+      "verified": false,
+      "evidence": "Overstated as a universal rule. The repo does have toXDto mappers in some modules (repos/helpers.ts:44, agents/helpers.ts:19, intent/helpers.ts:250, conventions/helpers.ts:119, brief/helpers.ts:539), but it equally exports raw row types straight out of repositories — reviews/repository.ts:20 `ReviewRow = typeof t.reviews.$inferSelect`, plus RepoRow in context/, smart-diff/, blast/, conventions/, brief/, intent/. Per the answer key this is a documented accepted compromise, so 'every other module' asserts a rule the repository does not actually hold — the second category of false positive under GRADING.md."
+    },
+    {
+      "claim": "Finding 10: untrusted GitHub PR body goes into the prompt unwrapped, while every other LLM call site uses wrapUntrusted",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Cites modules/intent/prompt.ts:94 and modules/brief/prompt.ts:222; independently reported by without_skill/run-2 (finding 8) with the same call sites. A genuine finding not in the answer key's list, and not a decoy."
+    },
+    {
+      "claim": "'anthropic/claude-3.5-haiku' is a stale pin — platform/model-router.ts uses claude-haiku-4-5",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Specific, checkable citation; consistent with the answer key's legitimate finding about the hardcoded model bypassing FEATURE_MODELS/resolveFeatureModel."
+    },
+    {
+      "claim": "Finding 1: every PR is fetched against the first PR's repository",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Listed in answer_key.legitimate_extra_findings."
+    },
+    {
+      "claim": "Finding 6 cites server/INSIGHTS.md 2026-08-28 that a transaction alone is insufficient under READ COMMITTED for delete-then-insert",
+      "type": "process",
+      "verified": true,
+      "evidence": "Cross-checked against without_skill/run-2 finding 6, which cites the same INSIGHTS entry for ContextRepository.replace. Consistent, specific, and a genuinely useful refinement of the answer key's 'regenerate deletes before the rebuild, with no transaction'."
+    }
+  ],
+  "user_notes_summary": {
+    "uncertainties": [],
+    "needs_review": [],
+    "workarounds": []
+  },
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "Does NOT flag whole-Container constructor injection as a defect",
+        "reason": "Passes here by silence, not by judgement — this review never considers the constructor at all, whereas both with_skill runs explicitly reason about it and clear it. A negative assertion that a review can satisfy by simply not looking is weakly discriminating. Consider splitting it into 'does not flag it' (pass/fail) and 'explicitly recognises it as an accepted compromise' (a separate, positive credit), which would separate 'didn't notice' from 'noticed and correctly cleared'."
+      },
+      {
+        "assertion": "Does NOT flag the row-type-as-DTO pattern as a defect",
+        "reason": "This is the one assertion that actually discriminated in this eval, and the failure here is unambiguous — a severity band plus 'define a Digest record in vendor/shared/contracts'. Worth keeping. But note the decoy is weaker than the answer key implies: the codebase really does contain five toXDto mappers, so a reviewer has honest precedent to point at. If the decoy is meant to be clean, the fixture or the answer key should acknowledge that split."
+      },
+      {
+        "assertion": "Every reported problem cites a specific file and line",
+        "reason": "Non-discriminating — all four runs pass."
+      }
+    ],
+    "overall": "Detects all three planted violations with good grounding and a broad, largely legitimate extra-finding set (untrusted-input wrapping and the stale model pin are real catches neither with_skill run made in full). Loses one assertion by flagging the row-type-as-DTO decoy and asserting a 'every other module returns a Zod contract' rule the repo does not uniformly hold."
+  }
+}

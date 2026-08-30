@@ -1,0 +1,124 @@
+{
+  "eval_name": "digests-module-review",
+  "run": "with_skill/run-1",
+  "expectations": [
+    {
+      "text": "Identifies that routes.ts performs data-access and/or business branching that belongs in the service",
+      "passed": true,
+      "evidence": "Finding 3 (High), 'routes.ts:6,28,33-46 — the route owns the business logic and talks to the repository directly': quotes line 28 `const repo = new DigestsRepository(app.container.db)`, line 36 `repo.findByPeriod`, line 38 the `if (existing && !req.body.regenerate)` branch, line 42 `repo.deleteById`, and states 'Everything the digest feature actually decides — what the period window is, whether a cached digest counts, whether to rebuild, and the delete-then-rebuild sequencing — lives in the handler.' Fix proposes collapsing lines 33-47 into one service call and dropping the repository import. Matches planted V1.1 exactly, including the line set 28/36/38/43/52 (line 52 covered by 'GET /digests should likewise call service.list')."
+    },
+    {
+      "text": "Identifies that service.ts queries the database directly instead of going through the repository",
+      "passed": true,
+      "evidence": "Finding 2 (Critical), 'service.ts:1,5,26–56 — the service issues raw Drizzle queries instead of going through a repository': quotes line 5 `import * as t from '../../db/schema.js'`, line 26 and line 51 `this.container.db.select(...)`. States 'The digests service already constructs a DigestsRepository on line 22 and then reaches past it.' Fix: move both queries onto DigestsRepository. Matches planted V1.2 (lines 5, 26, 51)."
+    },
+    {
+      "text": "Identifies that service.ts constructs the concrete OctokitGitHubClient adapter instead of resolving it from the container",
+      "passed": true,
+      "evidence": "Finding 1 (Critical), 'service.ts:2,58 — the service imports and constructs a concrete adapter, and reads the token from process.env': quotes line 2 `import { OctokitGitHubClient } from '../../adapters/github/octokit.js'` and line 58 `new OctokitGitHubClient(process.env.GITHUB_TOKEN ?? '')`. Names it a composition-root violation and a SecretsProvider bypass; fix is `await this.container.github()`. Matches planted V1.3 (lines 2, 58) including the secrets half of the rule."
+    },
+    {
+      "text": "Does NOT flag whole-Container constructor injection as a defect",
+      "passed": true,
+      "evidence": "Explicitly CLEARED in the 'Checked and clean — do not \"fix\" these' section: '**DigestsService taking the whole Container** (service.ts:21). This is the documented, intentional compromise in guides/pitfalls-and-tradeoffs.md — not a finding.' Appears nowhere in the numbered findings."
+    },
+    {
+      "text": "Does NOT flag the row-type-as-DTO pattern as a defect",
+      "passed": true,
+      "evidence": "Explicitly CLEARED: '**DigestRow = typeof t.digests.$inferSelect in repository.ts:5.** Row-types-as-DTOs is an accepted trade-off here; keeping it in the owning repository rather than db/rows.ts is correct while digests has no cross-cutting consumer.' Finding 15 does mention 'the route returns the raw row' but its substance is a genuine, separate defect — periodStart/periodEnd/bodyMd are nullable in db/schema/ops.ts:46-48, NULLs sort first under `orderBy(desc(...))`, and the unrelated `deliveredTo` column leaks. It does not assert that row types must be replaced by a hand-modelled domain-entity layer, and the pattern itself is explicitly named as accepted. Graded as cleared, not flagged. (Recorded in eval_feedback as borderline.)"
+    },
+    {
+      "text": "Every reported problem cites a specific file and line",
+      "passed": true,
+      "evidence": "All 16 findings carry a file:line locator in their heading (e.g. 'service.ts:2,58', 'repository.ts:24–40', 'constants.ts:6 + service.ts:45', 'service.ts:53–54'). The two exceptions are findings that report the ABSENCE of an artifact and therefore have no line to cite: finding 4 (module never registered — still cites server/src/modules/index.ts and app.ts:194) and finding 14 (no tests — cites server/test/). Every finding about code present in the fixture is line-anchored."
+    }
+  ],
+  "summary": {
+    "passed": 6,
+    "failed": 0,
+    "total": 6,
+    "pass_rate": 1.0
+  },
+  "finding_counts": {
+    "total_findings": 16,
+    "planted_detected": 3,
+    "decoys_flagged": 0,
+    "structural_findings": 5
+  },
+  "finding_counts_notes": {
+    "total_findings": "16 numbered findings (2 Critical, 5 High, 5 Medium, 4 Low). The 7-item 'Checked and clean' list is not counted as findings.",
+    "planted_detected": "V1.1 = finding 3; V1.2 = finding 2; V1.3 = finding 1.",
+    "decoys_flagged": "Both D1.1 and D1.2 are explicitly cleared in the 'Checked and clean' section.",
+    "structural_findings": "Findings 1 (adapter constructed outside composition root), 2 (Drizzle in service), 3 (route owns repository + branching), 4 (module not registered in the static registry), 15 (raw row returned across the HTTP boundary with no response schema)."
+  },
+  "execution_metrics": {
+    "total_tool_calls": 31,
+    "total_tokens": 86239,
+    "output_chars": 18933
+  },
+  "timing": {
+    "total_tokens": 86239,
+    "duration_ms": 275831,
+    "total_duration_seconds": 275.8,
+    "tool_uses": 31
+  },
+  "claims": [
+    {
+      "claim": "server/src/platform/container.ts is currently the only importer of OctokitGitHubClient",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Confirmed against the repo: no file under server/src/modules/** imports a concrete adapter class from adapters/github/."
+    },
+    {
+      "claim": "No modules/*/service.ts imports db/schema.js; all eleven data-touching services do `new XRepository(container.db)`",
+      "type": "factual",
+      "verified": true,
+      "evidence": "grep for 'inferSelect' and repository construction confirms schema access is confined to modules/*/repository.ts; 11+ services take `container: Container` and build their repository in the constructor (repos, context, agents, smart-diff, risks, intent, conventions, repo-intel, blast, brief, reviews)."
+    },
+    {
+      "claim": "Taking the whole Container in a service constructor matches all eleven existing services",
+      "type": "factual",
+      "verified": true,
+      "evidence": "grep 'container: Container' in server/src/modules returns constructor(private container: Container) in repos, context, agents, smart-diff, risks, intent, conventions, repo-intel, blast, brief, reviews services."
+    },
+    {
+      "claim": "findByPeriod's containment predicate contradicts its own doc comment, so the cache never hits",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Matches answer_key legitimate_extra_findings: 'findByPeriod uses a containment range match while its doc comment claims exact-boundary matching'."
+    },
+    {
+      "claim": "The GitHub round-trip is unnecessary because pull_requests.body is already persisted (finding 8)",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Consistent with the fixture and with without_skill/run-2's independent observation citing db/schema/pulls.ts:27. A legitimate finding, not in the answer key's list but a real simplification."
+    },
+    {
+      "claim": "The module is dead code because it is never added to server/src/modules/index.ts",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Listed in answer_key.legitimate_extra_findings."
+    }
+  ],
+  "user_notes_summary": {
+    "uncertainties": [],
+    "needs_review": [],
+    "workarounds": []
+  },
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "Does NOT flag the row-type-as-DTO pattern as a defect",
+        "reason": "Borderline, recorded verbatim per GRADING.md. This run clears the decoy outright ('Row-types-as-DTOs is an accepted trade-off here') but its Low finding 15 still says 'the route returns the raw row — including the unrelated deliveredTo column — with no response schema' and proposes to 'shape a small DTO in the route'. The decoy would be sharper if the fixture's digests columns were NOT nullable — as written, a reviewer has a genuine null-safety reason to touch the response shape, which muddies the signal the assertion is trying to read."
+      },
+      {
+        "assertion": "Every reported problem cites a specific file and line",
+        "reason": "Non-discriminating as written: all four runs anchor essentially every code finding to file:line, and all four contain the same unanchorable 'no tests ship with this module' finding. The assertion cannot separate a good review from a bad one here. Consider narrowing it to 'every finding about code present in the fixture cites file and line' or dropping it."
+      },
+      {
+        "reason": "Prominence, which GRADING.md rightly excludes from the verdict, is worth capturing as a separate metric: this run ranks the two Dependency-Rule violations as its top two Critical findings and the route-layer violation as High #3, i.e. all three planted defects are in the first three positions. Nothing in the assertion set rewards that."
+      }
+    ],
+    "overall": "All three planted violations detected and ranked at the top; both decoys explicitly cleared in a dedicated 'do not fix these' section. The only assertion that gave me pause was the row-type-as-DTO decoy, where an adjacent nullable-column finding proposes response shaping."
+  }
+}

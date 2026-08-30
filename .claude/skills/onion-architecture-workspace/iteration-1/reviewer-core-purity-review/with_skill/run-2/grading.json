@@ -1,0 +1,108 @@
+{
+  "eval_id": 2,
+  "eval_name": "reviewer-core-purity-review",
+  "run": "with_skill/run-2",
+  "expectations": [
+    {
+      "text": "Identifies that the file constructs its own LLM provider / reads an API key instead of taking an injected provider",
+      "passed": true,
+      "evidence": "Critical finding #3, 'A concrete adapter is constructed inside the domain core, and the API key is read from `process.env`', cites summarize.ts:5 and :39-41 and names both halves — composition-root violation and secrets-policy bypass. Remedy: 'add `llm: LLMProvider` to `SummarizeInput` ... delete lines 5 and 39-41'. Matches planted V2.1."
+    },
+    {
+      "text": "Identifies that the file performs filesystem I/O, which this package must not do",
+      "passed": true,
+      "evidence": "Critical finding #2, 'Filesystem I/O inside `reviewer-core` — package purity broken', cites summarize.ts:1 (`import { readFile } from 'node:fs/promises'`), :19-20 (`skillPaths?: string[]`) and :43-46 (the readFile loop), and prescribes replacing skillPaths with caller-resolved bodies. Matches planted V2.2."
+    },
+    {
+      "text": "Identifies that findings are returned without passing through the grounding gate",
+      "passed": true,
+      "evidence": "Critical finding #1 (listed first), 'The mandatory grounding gate is bypassed', cites summarize.ts:55-66 and states '`result.data.findings` is returned to the caller exactly as the model emitted it. Nothing calls `groundFindings()`.' Matches planted V2.3."
+    },
+    {
+      "text": "Does NOT flag the existing llm/openrouter.ts openai SDK import as a violation",
+      "passed": true,
+      "evidence": "Decoy D2.1 explicitly cleared under 'Checked and clean': '`../llm/openrouter.js` is not itself the problem ... that adapter living inside `reviewer-core` is a documented, deliberate exception. Finding #3 is about this file constructing it, not about the adapter's location.' No finding targets openrouter.ts."
+    },
+    {
+      "text": "Every reported problem cites a specific file and line",
+      "passed": true,
+      "evidence": "Findings #1-#9 all carry bolded summarize.ts line ranges (:55-66, :1/:19-20/:43-46, :5/:39-41, :55-60, :48-53 and :57-58, :43-46 and :51, :3 and :9-12, :7/:56/:65, :25-29 and :55-60). #10 cites summarize.ts:38 plus reviewer-core/src/index.ts (line-free for the missing export); #11 cites reviewer-core/test/ with no line, an absence finding. Same standard applied to all four runs."
+    }
+  ],
+  "summary": {
+    "passed": 5,
+    "failed": 0,
+    "total": 5,
+    "pass_rate": 1.0
+  },
+  "finding_counts": {
+    "total_findings": 11,
+    "planted_detected": 3,
+    "decoys_flagged": 0,
+    "structural_findings": 4
+  },
+  "finding_counts_note": "structural_findings = #2 (fs I/O across the package boundary), #3 (adapter constructed inside the core / dependency direction), #8 (model policy hardcoded in the core rather than caller-supplied), #10 (missing from the package's public surface). Grounding (#1), API shapes (#4, #5), trust wrapping (#6), z.custom (#7), telemetry (#9) and tests (#11) counted non-structural. Findings #4-#9 map to answer_key.legitimate_extra_findings and are not noise. The review additionally clears file placement, the second-pass concept, and the two documented compromises (whole-Container injection, row-types-as-DTOs) under 'Checked and clean'.",
+  "timing": {
+    "total_tokens": 79208,
+    "duration_ms": 226978,
+    "executor_duration_seconds": 227.0,
+    "total_duration_seconds": 227.0,
+    "tool_uses": 27
+  },
+  "claims": [
+    {
+      "claim": "`grep -rn \"node:fs\" reviewer-core/src` currently returns nothing — this import would be the first.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Confirmed: grep for node:fs and process.env across reviewer-core/src returns zero hits."
+    },
+    {
+      "claim": "StructuredRequest's messages and schemaName are both required and are both missing from the call.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "server/src/vendor/shared/adapters.ts:55-70 — `schemaName: string` and `messages: ChatMessage[]` are non-optional."
+    },
+    {
+      "claim": "z.custom<Finding>() with no validator accepts anything, and Finding is a Zod schema value in @devdigest/shared.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "server/src/vendor/shared/contracts/findings.ts exports `const Finding = z.object({...})` as a value; the review's z.custom characterisation is correct."
+    },
+    {
+      "claim": "The pricing table keys this model family as `claude-3-5-haiku-latest`, so the hardcoded id would not resolve to a price.",
+      "type": "factual",
+      "verified": false,
+      "evidence": "Not independently checked against server/src/adapters/llm/pricing.ts in this grading pass; plausible and cited with a line, but unverified here. Does not affect any assertion."
+    },
+    {
+      "claim": "The file has almost certainly never been run.",
+      "type": "quality",
+      "verified": true,
+      "evidence": "Justified: the request/prompt shape mismatches are compile-time errors against the real signatures verified above."
+    }
+  ],
+  "user_notes_summary": {
+    "uncertainties": [],
+    "needs_review": [],
+    "workarounds": []
+  },
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "Does NOT flag the existing llm/openrouter.ts openai SDK import as a violation",
+        "reason": "Non-discriminating: all four runs pass. Both with_skill runs pass by explicitly clearing the adapter; both without_skill runs pass by never mentioning it. A stricter variant ('explicitly clears openrouter.ts as an intentional exception') would separate knowledge of the exception from silence."
+      },
+      {
+        "assertion": "Every reported problem cites a specific file and line",
+        "reason": "Non-discriminating and ill-posed for absence findings (missing index.ts export, missing tests) which have no line. Every run has 1-3 such findings."
+      },
+      {
+        "reason": "This run put the grounding-gate violation first and the provider construction third, while with_skill/run-1 ordered them 1-2-3 — both defensible under 'most important first', and no assertion tests ordering. If ordering matters to the eval author, make it an assertion; otherwise the current set is right to ignore it."
+      },
+      {
+        "reason": "No assertion rewards an explicit 'checked and clean' section. This run enumerated what it deliberately did not flag (openrouter.ts location, whole-Container injection, row-types-as-DTOs), which is the behaviour the skill's pitfalls guide is meant to produce — and it is entirely uncredited."
+      }
+    ],
+    "overall": "5/5. Assertion set does not discriminate in this iteration — all four runs pass all five. The interesting signal is in the finding counts and in whether the decoy is cleared explicitly versus merely unmentioned."
+  }
+}

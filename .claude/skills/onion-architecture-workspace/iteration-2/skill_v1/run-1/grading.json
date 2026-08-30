@@ -1,0 +1,142 @@
+{
+  "eval": "onion-architecture",
+  "run": "skill_v1/run-1",
+  "expectations": [
+    {
+      "text": "Detects F01: digests/routes.ts constructs DigestsRepository itself and calls findByPeriod / deleteById / listRecent, bypassing the service",
+      "passed": true,
+      "evidence": "Finding 7 (Blocking), 'digests/routes.ts holds business logic and talks to the repository directly ... :6, :28, :33-44, :52': quotes `const repo = new DigestsRepository(app.container.db);` plus findByPeriod/deleteById, and calls out 'a direct repository call in GET (:52) that does not go through the service at all.'"
+    },
+    {
+      "text": "Detects F02: the digests POST handler branches on domain state (cache hit vs regenerate) and owns the period arithmetic, which belongs in the service",
+      "passed": true,
+      "evidence": "Same finding 7: 'the handler owns the period-window arithmetic (:33-34), the cache-hit decision, the regenerate/delete branch'. Fix collapses them into service.generate(...)."
+    },
+    {
+      "text": "Detects F03: digests/service.ts imports db/schema.js and runs its own Drizzle select() queries although the module already has a repository",
+      "passed": true,
+      "evidence": "Finding 5 (Blocking): 'DigestsService runs raw Drizzle queries instead of using its repository ... imports db/schema.js ... DigestsRepository already exists next door and this bypasses it entirely.'"
+    },
+    {
+      "text": "Detects F04: digests/service.ts imports OctokitGitHubClient and constructs it instead of awaiting container.github()",
+      "passed": true,
+      "evidence": "Finding 4 (Blocking): quotes the OctokitGitHubClient import and construction; 'platform/container.ts is the only file allowed to import adapters/*.' Fix: `await this.container.github()`."
+    },
+    {
+      "text": "Detects F05: the GitHub token is read from process.env with an empty-string fallback instead of resolving through SecretsProvider",
+      "passed": true,
+      "evidence": "Same finding 4: 'it bypasses SecretsProvider, which is where GitHub PATs actually live ... so in a normal dev install process.env.GITHUB_TOKEN is empty and this silently constructs an unauthenticated Octokit.'"
+    },
+    {
+      "text": "Detects F06: digests/service.ts imports memory's repository/search.repo.js directly, reaching past MemoryRepository into another module's data layer",
+      "passed": true,
+      "evidence": "Finding 6 (Blocking): quotes the search.repo.js import; 'it reaches *past* the MemoryRepository facade ... Second, it is a cross-module data-layer import.'"
+    },
+    {
+      "text": "Detects F07: the new module(s) are never added to server/src/modules/index.ts, so the routes 404 as shipped",
+      "passed": true,
+      "evidence": "Finding 8 (Blocking): 'Neither module is registered in modules/index.ts ... As it stands, neither /digests nor /memory is reachable.'"
+    },
+    {
+      "text": "Detects F08: reviewer-core/src/review/summarize.ts reads process.env.OPENROUTER_API_KEY and constructs its own OpenRouterProvider",
+      "passed": true,
+      "evidence": "Finding 2 (Blocking): quotes the OpenRouterProvider import, env read and construction; 'reviewer-core/src currently contains zero process.env references - this would be the first.'"
+    },
+    {
+      "text": "Detects F09: summarize.ts imports node:fs/promises and reads skill bodies off disk instead of receiving resolved strings",
+      "passed": true,
+      "evidence": "Finding 3 (Blocking): quotes the node:fs/promises import, the skillPaths declaration and the readFile loop; 'reviewer-core has NO database, GitHub, or filesystem access by design.'"
+    },
+    {
+      "text": "Detects F10: summarize.ts returns result.data.findings straight from the model without routing them through groundFindings()",
+      "passed": true,
+      "evidence": "Finding 1 (Blocking, first in the review): 'Raw StructuredResult.data.findings is handed straight back to the caller ... hallucinated line citations will reach the PR page.'"
+    },
+    {
+      "text": "Detects F11: the model id (SUMMARY_MODEL) is hardcoded inside the pure engine rather than supplied by the caller",
+      "passed": true,
+      "evidence": "Finding 2's fix paragraph: 'The model id should likewise be a parameter (`model: string`) rather than the hardcoded `SUMMARY_MODEL` at `:7`, since the provider is caller-chosen.' Names the file, the line and the defect - counts as detected despite being folded into another finding's remedy."
+    },
+    {
+      "text": "Detects F12: summarizeReview is never exported from reviewer-core/src/index.ts, so it is unreachable dead code",
+      "passed": true,
+      "evidence": "Finding 17 (Minor/nits), 'summarize.ts is not exported from the package entry point - reviewer-core/src/index.ts (unchanged by this PR) ... as submitted summarizeReview is unreachable without a deep path import. Add it to index.ts next to reviewPullRequest.'"
+    },
+    {
+      "text": "Detects F13: memory/repository/item.repo.ts and search.repo.ts import types back from ../repository.js, which imports both back - a facade/aggregate cycle",
+      "passed": true,
+      "evidence": "Finding 19 (Minor/nits), 'Type cycle between the memory repository facade and its aggregate files - item.repo.ts:4, search.repo.ts:4': 'Both import InsertMemory / MemoryRow / NearestOptions from ../repository.js, which in turn imports both files - a cycle.' Detected at position 19 of 19 and omitted from the verdict paragraph, but detection is what is graded."
+    },
+    {
+      "text": "Detects F14: server/test/digests-service.test.ts drives a real Postgres via startPg() but is named *.test.ts instead of *.it.test.ts",
+      "passed": true,
+      "evidence": "Finding 9 (Blocking): 'DB-backed test is named *.test.ts, not *.it.test.ts ... Fix: rename to server/test/digests.it.test.ts.'"
+    },
+    {
+      "text": "Does NOT flag D1: the service constructor taking the whole Container rather than narrowly-scoped ports",
+      "passed": true,
+      "evidence": "CLEARED EXPLICITLY. 'Checked and clean': 'Whole-Container injection into both services - an intentional, documented compromise in this codebase; not flagged.'"
+    },
+    {
+      "text": "Does NOT flag D2 as a blocking defect: DigestRow ($inferSelect) returned to callers as the response shape",
+      "passed": true,
+      "evidence": "CLEARED EXPLICITLY. 'Row types as DTOs (DigestRow, MemoryRow from $inferSelect) - likewise a documented, accepted trade-off; not flagged.'"
+    },
+    {
+      "text": "Does NOT flag D3: memory/repository.ts being a thin facade over repository/item.repo.ts and repository/search.repo.ts",
+      "passed": true,
+      "evidence": "CLEARED EXPLICITLY. 'the facade-over-repository/{item,search}.repo.ts split matches reviews/repository.ts and is appropriate for a domain with two real reasons to change. This is the right template; digests should follow it.' Finding 19 attacks only the import direction, and its fix keeps the split."
+    },
+    {
+      "text": "Does NOT flag D4: reviewer-core/src/llm/openrouter.ts, a concrete adapter importing the openai SDK, living inside the pure reviewer-core package",
+      "passed": true,
+      "evidence": "CLEARED EXPLICITLY. 'OpenRouterProvider physically living inside reviewer-core - the documented exception; the problem in finding 2 is the *construction site*, not the file's location.'"
+    },
+    {
+      "text": "Does NOT flag D5: embedOrNull swallowing embedder failures so memory search degrades to an empty result",
+      "passed": true,
+      "evidence": "CLEARED EXPLICITLY and used as the standard. Finding 13: 'MemoryService.embedOrNull (memory/service.ts:57-65) gets this right; copy it.' The finding is against DigestsService for not degrading."
+    }
+  ],
+  "summary": {
+    "passed": 19,
+    "failed": 0,
+    "total": 19,
+    "pass_rate": 1.0
+  },
+  "finding_counts": {
+    "total_findings": 19,
+    "planted_detected": 14,
+    "decoys_flagged": 0,
+    "structural_findings": 13,
+    "decoys_cleared_explicitly": 5,
+    "decoys_unmentioned": 0
+  },
+  "decoy_status": {
+    "D1": "cleared_explicitly",
+    "D2": "cleared_explicitly",
+    "D3": "cleared_explicitly",
+    "D4": "cleared_explicitly",
+    "D5": "cleared_explicitly"
+  },
+  "timing": {
+    "total_tokens": 79477,
+    "duration_ms": 195080,
+    "total_duration_seconds": 195.1,
+    "tool_uses": 18
+  },
+  "prominence_note": "F13 is finding 19/19 ('Minor / nits') and absent from the summary verdict; F11 is a sentence inside finding 2's fix; F12 is finding 17 under nits. All three still count as detected.",
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "Detects F13: memory/repository/item.repo.ts and search.repo.ts import types back from ../repository.js, which imports both back - a facade/aggregate cycle",
+        "reason": "This run reports F13 as finding 19 of 19, under 'Minor / nits', and its verdict paragraph does not mention it - while another run makes the same finding Blocking. A recall-only score treats these as identical. If the eval cares about whether a reviewer would act on the cycle, it needs a separate prominence or severity assertion; today's key explicitly says it does not."
+      },
+      {
+        "assertion": "Detects F11: the model id (SUMMARY_MODEL) is hardcoded inside the pure engine rather than supplied by the caller",
+        "reason": "F11 here is a trailing sentence inside finding 2's fix, not a finding of its own. The key's 'names the file and the defect' rule makes this a pass, but it is worth stating that a remedy sentence counts, since that is the kind of case a keyword grader gets wrong in both directions."
+      }
+    ],
+    "overall": "Full recall (14/14), zero decoys flagged, and all five decoys explicitly cleared in a dedicated section - the cleanest decoy handling of the six runs."
+  }
+}

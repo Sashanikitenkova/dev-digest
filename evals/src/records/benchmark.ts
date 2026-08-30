@@ -67,21 +67,27 @@ function summarize(records: EvalRecord[]) {
 }
 
 const pct = (r: number) => `${Math.round(r * 100)}%`;
+/** Session budget for one benchmark invocation; --force overrides. Sized so a single-case A/B at
+ *  the default -n 5 (1 × 5 × 2 = 10) runs freely, while a whole-directory sweep has to be asked for. */
+const MAX_SESSIONS = Number(process.env.EVAL_MAX_SESSIONS ?? "12");
+
 const cell = (s: Stats) => `${s.mean.toFixed(0)} ± ${s.stddev.toFixed(0)} [${s.min}–${s.max}] (n=${s.n})`;
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   let times = 5;
   let label: string | undefined;
+  let force = false;
   const vitestArgs: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "-n" || a === "--runs" || a === "--times") times = Number(argv[++i]);
     else if (a === "--label") label = argv[++i];
+    else if (a === "--force") force = true;
     else vitestArgs.push(a);
   }
   if (vitestArgs.length === 0 || !Number.isFinite(times) || times < 1) {
-    console.error("usage: pnpm eval:benchmark <vitest pattern> [-n runs] [--label name]");
+    console.error("usage: pnpm eval:benchmark <vitest pattern> [-n runs] [--label name] [--force]");
     process.exit(1);
   }
   if (vitestArgs.some((a) => a.includes("workflow"))) {
@@ -96,9 +102,18 @@ async function main(): Promise<void> {
   const startLine = recordCount();
   const nCases = countTests(vitestArgs);
   console.log(`\nBenchmark: ${vitestArgs.join(" ")}`);
-  console.log(
-    `  ${nCases ?? "?"} test case(s) × ${times} runs × 2 configs = ${(nCases ?? 0) * times * 2} sessions`,
-  );
+  const sessions = (nCases ?? 0) * times * 2;
+  console.log(`  ${nCases ?? "?"} test case(s) × ${times} runs × 2 configs = ${sessions} sessions`);
+  // Token economy. Unlike eval:repeat (hard-capped at 2 runs), benchmark cannot simply clamp -n:
+  // its whole output is mean ± stddev, and n=2 makes the stddev meaningless. So bound the TOTAL
+  // spend instead of the run count, and make blowing past it a deliberate act.
+  if (sessions > MAX_SESSIONS && !force) {
+    console.error(
+      `\n  ${sessions} sessions exceeds the ${MAX_SESSIONS}-session budget.\n` +
+        `  Narrow the pattern (-t <one case>), lower -n, or pass --force to spend it anyway.`,
+    );
+    process.exit(1);
+  }
   console.log(`  ${GREEN}candidate${RESET} = artifact injected (with skill)   ${DIM}·${RESET}   ${YELLOW}baseline${RESET} = raw model, no artifact\n`);
   await runConfig("candidate", times, vitestArgs);
   await runConfig("baseline", times, vitestArgs);

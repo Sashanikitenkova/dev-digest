@@ -1,0 +1,122 @@
+{
+  "eval_name": "memory-clean-review",
+  "run": "with_skill/run-1",
+  "expectations": [
+    {
+      "text": "Reports ZERO structural or layering violations",
+      "passed": false,
+      "evidence": "The review's headline verdict is clean ('**The onion layering is clean.** I found no Dependency Rule violation. What follows are correctness, tenancy, contract and coverage problems — not layering ones.') and the closing line is 'Layering: no violations found.' But two of the thirteen numbered findings are structural. Finding 12 is 'LOW — circular type import between the facade and its aggregate files' — a dependency-direction/file-placement finding, listed in the problem list, assigned Low severity in the summary table ('circular type import; diverges from the reference implementation') and paired with a change: 'Fix (optional): move the shared types to `modules/memory/types.ts` ... and have all three files import from there.' Finding 11 is about module shape (the facade split), though it is hedged (see assertion 4). Under GRADING.md a finding listed among the problems with a severity and a proposed change is flagged, so the count of structural findings against a structurally-correct module is 2, not 0."
+    },
+    {
+      "text": "Does NOT flag whole-Container constructor injection as a defect",
+      "passed": true,
+      "evidence": "Explicitly cleared in the 'What I checked and found clean' section: 'service.ts takes `Container` and reaches infrastructure only through port-typed members ... Whole-`Container` injection is the documented, accepted compromise (`guides/pitfalls-and-tradeoffs.md:19`).' It appears nowhere in the thirteen findings or the summary table."
+    },
+    {
+      "text": "Does NOT flag the row-type-as-DTO pattern as a defect",
+      "passed": true,
+      "evidence": "Finding 3 is about the HTTP payload, not the pattern, and the review says so explicitly: 'Note this is *not* the \"row types double as DTOs\" compromise the skill tells reviewers to leave alone (`guides/drizzle-repository-pattern.md:32`) — that covers internal cross-module type sharing, not putting an embedding vector on the wire.' The substance of the finding — a bare `db.select()` shipping the 1536-float `embedding` column on every response — is the legitimate functional bug the eval expects to be found. Verified against the repo: `db/rows.ts` row-types-as-DTOs is indeed documented as an internal-sharing compromise (`guides/drizzle-repository-pattern.md:32-38`), and the DTO-at-the-HTTP-boundary convention the review cites is real (`repos/helpers.ts:44 toRepoDto`, `agents/helpers.ts:19 toAgentDto`, `conventions/helpers.ts:119 toConventionDto`, `intent/helpers.ts:250 toIntentDto`)."
+    },
+    {
+      "text": "Does NOT flag the repository facade over per-aggregate files as needless indirection",
+      "passed": true,
+      "evidence": "HEDGED, which GRADING.md scores as a pass. Finding 11 raises the split but refuses to call it a defect and proposes no change: 'The doc comment at `repository.ts:7-10` argues the split on axis-of-change rather than aggregates, which is a defensible reading — I am flagging it as a judgement call to make consciously, not as a defect. If the module is expected to grow ranking/decay/consolidation, keep it. If not, one `repository.ts` is closer to proportionate. **Not a blocker either way.**' It is the only numbered finding in the review with no **Fix:** line, and the decision is handed back to the author symmetrically (keep it / collapse it) rather than prescribed. The review separately endorses the shape itself: 'The facade-over-aggregate shape mirrors `reviews/repository.ts` exactly ... the shape itself is correct.' Confirmed against the repo: `server/src/modules/reviews/repository.ts` uses the identical pattern and near-identical docstring ('The query implementations are colocated, split by aggregate, under `./repository/` ... This class composes them so its public API stays identical')."
+    },
+    {
+      "text": "Does NOT propose restructuring the module into a different folder shape",
+      "passed": true,
+      "evidence": "No collapse, no folder move, no layer rearrangement is proposed. The `{routes,service,repository,constants,helpers}.ts` + `repository/` shape is explicitly endorsed: '`helpers.ts` / `constants.ts` are pure, I/O-free, and match `conventions/`'s file set. No new top-level files outside the module folder.' The only shape-adjacent proposal is finding 12's optional 'move the shared types to `modules/memory/types.ts` (the shape `repo-intel/types.ts` already uses)' — adding one file that follows an existing in-repo precedent, not a different folder shape. Borderline but passing."
+    }
+  ],
+  "summary": {
+    "passed": 4,
+    "failed": 1,
+    "total": 5,
+    "pass_rate": 0.8
+  },
+  "finding_counts": {
+    "total_findings": 13,
+    "planted_detected": 0,
+    "decoys_flagged": 0,
+    "structural_findings": 2
+  },
+  "structural_findings_detail": [
+    {
+      "id": "11",
+      "severity": "Low",
+      "treatment": "hedged",
+      "text": "LOW — the facade-over-aggregate split is slightly ahead of the domain. '`repository.ts` composes `item.repo.ts` + `search.repo.ts` for four queries over one table. ... I am flagging it as a judgement call to make consciously, not as a defect. ... **Not a blocker either way.**'"
+    },
+    {
+      "id": "12",
+      "severity": "Low",
+      "treatment": "flagged",
+      "text": "LOW — circular type import between the facade and its aggregate files. 'These are `import type`, so they are erased and there is no runtime cycle — this is not a bug today. But it is not how the pattern's reference implementation does it ... Fix (optional): move the shared types to `modules/memory/types.ts`.'"
+    }
+  ],
+  "structural_counting_rule": "A finding counts as structural when its subject is layering, file placement, module shape, or dependency direction. Excluded uniformly across all four runs: the scope/kind enum-duplication finding (substance is drift/DRY, even though its fix touches where types live) and the 'no tests shipped' finding (substance is coverage, not placement).",
+  "execution_metrics": {
+    "total_tool_calls": 23,
+    "total_tokens": 100739,
+    "output_chars": 12406
+  },
+  "timing": {
+    "total_tokens": 100739,
+    "duration_ms": 279776,
+    "executor_duration_seconds": 279.8,
+    "total_duration_seconds": 279.8,
+    "tool_uses": 23
+  },
+  "claims": [
+    {
+      "claim": "The facade-over-aggregate shape mirrors reviews/repository.ts exactly",
+      "type": "factual",
+      "verified": true,
+      "evidence": "server/src/modules/reviews/repository.ts composes repository/{review,run,pull,skill-stats}.repo.ts behind one class and carries the same 'split by aggregate ... composes them so its public API stays identical' docstring."
+    },
+    {
+      "claim": "guides/pitfalls-and-tradeoffs.md:9 explicitly warns against scaffolding a facade for a module that will only ever need two queries",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Verbatim in the skill: 'Match a new module's layering depth to its actual complexity — don't scaffold a facade-over-aggregates repository for a module that will only ever need two queries.' The reviewer is quoting the skill accurately; the skill itself supplies the ammunition for decoy D3.3."
+    },
+    {
+      "claim": "Sibling modules map rows to a DTO before returning them over HTTP",
+      "type": "factual",
+      "verified": true,
+      "evidence": "toRepoDto (repos/helpers.ts:44), toAgentDto (agents/helpers.ts:19), toConventionDto (conventions/helpers.ts:119), toIntentDto (intent/helpers.ts:250); skills/context/blast services return shared contract types (Skill[], ContextListing, PrBlast)."
+    },
+    {
+      "claim": "The type-only cycle between repository.ts and repository/*.repo.ts is not how reviews/ does it",
+      "type": "factual",
+      "verified": true,
+      "evidence": "reviews/repository/review.repo.ts:7 declares its own ReviewRow and reviews/repository.ts:17 pulls FindingRow/PullRow from db/rows.js — the dependency is one-directional, as claimed."
+    },
+    {
+      "claim": "No Dependency Rule violation exists in the module",
+      "type": "quality",
+      "verified": true,
+      "evidence": "Matches the fixture: routes → service → repository, embedder reached only via container.embedder(), all Drizzle access confined to repository.ts and repository/*.repo.ts."
+    }
+  ],
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "Reports ZERO structural or layering violations",
+        "reason": "The fixture is not quite as structurally airtight as the assertion assumes. All four runs independently found the same real structural wrinkle: repository/item.repo.ts:4 and repository/search.repo.ts:4 import types from ../repository.js, which imports both files back — a type-only cycle that the reference implementation (reviews/repository/*.repo.ts pulling row types from db/rows.ts) deliberately avoids. It is not in answer_key.decoys and it is verifiable, so a reviewer cannot be faulted for seeing it, yet it is unambiguously a dependency-direction finding and so fails this assertion in every run. Either add it to the decoy list with a rationale, remove the cycle from the fixture, or narrow the assertion to 'no layer-boundary violation (routes/service/repository, ports, composition root)'. As written, the assertion cannot separate the configurations."
+      },
+      {
+        "assertion": "Does NOT flag the repository facade over per-aggregate files as needless indirection",
+        "reason": "guides/pitfalls-and-tradeoffs.md contains the sentence 'don't scaffold a facade-over-aggregates repository for a module that will only ever need two queries', and both with_skill runs quoted it verbatim to raise D3.3. The skill is arming the decoy. If D3.3 is meant to be cleared, the guide needs a counter-clause naming when the split IS right (multiple axes of change, not just multiple aggregates), or the fixture's four-queries-over-one-table shape needs to be big enough that the guide's escape hatch does not apply."
+      },
+      {
+        "assertion": "Does NOT flag the row-type-as-DTO pattern as a defect",
+        "reason": "D3.2 ('MemoryRow ... is returned to route callers') is entangled with a bug the eval treats as legitimate (the 1536-float embedding on the wire), because the only fix for the embedding leak is to stop returning the row. All four runs therefore propose a DTO, and the assertion cannot be graded on the proposal itself — only on whether the review additionally condemns row-types-as-DTOs as a pattern. Recommend re-scoping D3.2 to 'do not demand a hand-modeled domain-entity layer / a parallel DTO ring' and stating explicitly that objecting to the HTTP payload is fair game."
+      },
+      {
+        "reason": "No assertion rewards clearing a decoy explicitly, yet that is the most visible behavioural difference between runs. This run cleared four of the five decoys by name (Container, row-types, helpers/constants placement, degrade-on-ConfigError) in a dedicated 'what I checked and found clean' section, which is far stronger evidence of understanding than silence. Consider an assertion like 'Explicitly names at least two documented compromises as intentional'."
+      }
+    ],
+    "overall": "Assertions 2-5 are well-targeted decoy checks; assertion 1 is currently unfalsifiable-in-the-right-direction because the fixture contains an ungraded real structural wrinkle. This run is the strongest of the four on the metric the eval actually cares about: it is the only one that did not propose collapsing or reshaping the repository facade."
+  }
+}

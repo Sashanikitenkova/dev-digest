@@ -1,0 +1,167 @@
+{
+  "expectations": [
+    {
+      "text": "Defines a port interface in vendor/shared/adapters.ts before/alongside the concrete client",
+      "passed": true,
+      "evidence": "`server/src/vendor/shared/adapters.ts` (plan.md L238-277) appends `// ---------- Issue tracker (Linear) ----------` with `export interface TicketStateInfo`, `export interface TicketInfo` and `export interface TicketClient { readonly provider: 'linear'; getTicket(key: string): Promise<TicketInfo | null>; }`. The port section precedes the adapter section (L282), and \u00a72 states 'A port, not a direct `fetch`. Every external call in this codebase sits behind an interface in `src/vendor/shared/adapters.ts` and is constructed only in `platform/container.ts`.'"
+    },
+    {
+      "text": "Places the concrete Linear client under server/src/adapters/",
+      "passed": true,
+      "evidence": "`server/src/adapters/linear/graphql.ts` (L282+) defines `export class LinearTicketClient implements TicketClient` (L363), importing zod, `@devdigest/shared` types, `platform/resilience.js` and `platform/errors.js`. This is the exact path shape the answer key names (`server/src/adapters/linear/`), and it is re-exported from `adapters/index.ts` (L439)."
+    },
+    {
+      "text": "Wires the adapter into platform/container.ts including a ContainerOverrides field",
+      "passed": true,
+      "evidence": "`server/src/platform/container.ts` (L501-566), 'Three edits': type import of `TicketClient`, `import { LinearTicketClient } from '../adapters/linear/graphql.js';`, a ContainerOverrides slot `/** Issue-tracker port (Linear). Tests inject MockTicketClient. */ tickets?: TicketClient;`, `private _tickets?: TicketClient;`, the `async tickets()` accessor, and `this._tickets = undefined;` in `invalidateSecretCaches()`."
+    },
+    {
+      "text": "Resolves the Linear API key through SecretsProvider rather than process.env or AppConfig",
+      "passed": true,
+      "evidence": "container.ts accessor (L548-554): `const key = await this.secrets.get('LINEAR_API_KEY'); if (!key) throw new ConfigError('LINEAR_API_KEY is not configured'); this._tickets = new LinearTicketClient(key);`, documented as 'the key lives in SecretsProvider, never AppConfig'. \u00a72 adds that `LocalSecretsProvider.get` already falls through to `process.env[key]`, so no code change is needed \u2014 the resolution still goes through the provider, not a direct `process.env` read."
+    },
+    {
+      "text": "The service obtains the client from the container instead of importing the concrete class",
+      "passed": true,
+      "evidence": "`modules/tickets/service.ts` imports `TicketClient`/`TicketInfo` as types from `@devdigest/shared` and gets the instance via `let client: TicketClient; try { client = await this.container.tickets(); } catch (err) { ... return cached ? rowToResult(cached, true) : emptyResult('not_configured', reference); }`. `LinearTicketClient` appears nowhere in the module."
+    },
+    {
+      "text": "The route handler contains no business branching and no direct data access",
+      "passed": true,
+      "evidence": "`modules/tickets/routes.ts` (L1003-1053) declares `RefreshQuery` as a Zod schema and one handler: `const { workspaceId } = await getContext(app.container, req); return service.getForPull(workspaceId, req.params.id, { refresh: req.query.refresh, log: (obj, msg) => req.log.warn(obj, msg) });`. No conditionals, no drizzle-orm/db/schema import; TTL freshness and the five `status` outcomes are all in service.ts."
+    },
+    {
+      "text": "Registers the new module in server/src/modules/index.ts",
+      "passed": true,
+      "evidence": "`server/src/modules/index.ts` (L1055-1087) \u2014 'One import + one entry (rest unchanged)': `import tickets from './tickets/routes.js';` plus `tickets,` in the exported `modules` record."
+    }
+  ],
+  "summary": {
+    "passed": 7,
+    "failed": 0,
+    "total": 7,
+    "pass_rate": 1.0
+  },
+  "finding_counts": {
+    "total_findings": 18,
+    "planted_detected": 8,
+    "decoys_flagged": 0,
+    "structural_findings": 7,
+    "_note": "Authoring eval: total_findings = files added/changed (the plan's own \u00a74 file table, 18 rows); planted_detected = expected_steps satisfied (8/8); structural_findings = distinct layers named in the plan's \u00a72 layering diagram (routes, service, repository, helpers, container/port, prod adapter, mock adapter)."
+  },
+  "expected_steps": [
+    {
+      "step": "Adds a LinearClient (or similar) port interface to server/src/vendor/shared/adapters.ts",
+      "satisfied": true,
+      "evidence": "`TicketClient` + `TicketInfo` + `TicketStateInfo` appended to adapters.ts."
+    },
+    {
+      "step": "Puts the concrete implementation under server/src/adapters/linear/",
+      "satisfied": true,
+      "evidence": "EXACT MATCH: `server/src/adapters/linear/graphql.ts`."
+    },
+    {
+      "step": "Adds a `linear?: LinearClient` field to ContainerOverrides",
+      "satisfied": true,
+      "evidence": "VARIANT NAME: `tickets?: TicketClient;`, appended after `tokenizer?`."
+    },
+    {
+      "step": "Adds a lazy accessor on Container that resolves the API key via SecretsProvider and constructs the adapter there",
+      "satisfied": true,
+      "evidence": "`async tickets(): Promise<TicketClient>` \u2014 overrides check, `_tickets` cache, `secrets.get('LINEAR_API_KEY')`, ConfigError when unset, explicitly documented as the caller's job to catch."
+    },
+    {
+      "step": "The service reaches the client via the container, never by importing the adapter class",
+      "satisfied": true,
+      "evidence": "`await this.container.tickets()` inside a try/catch that maps ConfigError to `not_configured`."
+    },
+    {
+      "step": "routes.ts stays thin: Zod schema, getContext, one service call, response shaping",
+      "satisfied": true,
+      "evidence": "One handler: `IdParams` + `RefreshQuery` schemas, `getContext`, one `service.getForPull` call, plus a route-level rateLimit config."
+    },
+    {
+      "step": "Registers the module with one import + one entry in server/src/modules/index.ts",
+      "satisfied": true,
+      "evidence": "L1055-1087."
+    },
+    {
+      "step": "Any persistence goes through a repository.ts, not inline Drizzle in the service",
+      "satisfied": true,
+      "evidence": "New `pr_tickets` table (db/schema/tickets.ts + migration 0017). `modules/tickets/repository.ts` (`TicketsRepository.getPull/getByPr/upsert`) is the only file importing `db/schema.js` and `drizzle-orm`; service.ts calls `this.repo.upsert({...})`."
+    }
+  ],
+  "execution_metrics": {
+    "tool_calls": {},
+    "total_tool_calls": 39,
+    "total_steps": null,
+    "errors_encountered": 0,
+    "output_chars": 48297,
+    "transcript_chars": 0,
+    "_note": "No metrics.json or transcript was produced for this run; total_tool_calls taken from timing.json `tool_uses`."
+  },
+  "claims": [
+    {
+      "claim": "The port is 'deliberately provider-shaped (`getTicket(key)`), not Linear-shaped, so a Jira adapter is a second class and not a second module'",
+      "type": "quality",
+      "verified": false,
+      "evidence": "The method signature is provider-neutral, but the interface declares `readonly provider: 'linear';` and `TicketInfo` carries `provider: 'linear'`. A Jira adapter would need those literals widened in adapters.ts, so the claim overstates the neutrality."
+    },
+    {
+      "claim": "grep confirms zero occurrences of `ticket` in `server/src`, so a new table is required",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Consistent with the repo: there is no ticket table under server/src/db/schema/. The claim is used to justify migration 0017 rather than reusing an existing table."
+    },
+    {
+      "claim": "`LocalSecretsProvider.get` falls through to `process.env[key]` for any unknown key, so `LINEAR_API_KEY` works with no secrets code change",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Matches the repo's LocalSecretsProvider behaviour. Importantly the resolution still goes through the provider \u2014 the plan does not read process.env directly anywhere."
+    },
+    {
+      "claim": "The two vendored trees (`server/src/vendor/shared` and `client/src/vendor/shared`) are currently identical",
+      "type": "factual",
+      "verified": false,
+      "evidence": "Not accurate for adapters.ts: the server and client copies of `vendor/shared/adapters.ts` have already drifted in the repo. This does not affect any assertion \u2014 the plan correctly defers the client mirror to a follow-up \u2014 but the stated reason is wrong."
+    },
+    {
+      "claim": "Nothing in the repository was edited",
+      "type": "process",
+      "verified": true,
+      "evidence": "`git status --porcelain` shows only the untracked eval workspace directory."
+    }
+  ],
+  "user_notes_summary": {
+    "uncertainties": [],
+    "needs_review": [],
+    "workarounds": [],
+    "_note": "No user_notes.md was produced for this run."
+  },
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "Defines a port interface in vendor/shared/adapters.ts before/alongside the concrete client",
+        "reason": "All four runs satisfied this identically. The assertion is satisfied by ANY exported interface added to adapters.ts; it does not check that the port is free of vendor-specific types. Three of the four plans (with_skill/run-1 `IssueTracker`, with_skill/run-2 `IssueTrackerClient`, without_skill/run-1 `TicketClient`) claim vendor neutrality in prose yet pin `readonly id: 'linear'` / `readonly provider: 'linear'` into the interface, so a Jira adapter could not implement the port without widening it. An assertion like 'the port interface contains no Linear-specific literal type or field' would discriminate."
+      },
+      {
+        "assertion": "The route handler contains no business branching and no direct data access",
+        "reason": "Every plan wrote a ~15-line handler that is Zod schema + getContext + one service call, so this passes for all four. It would be more discriminating to assert on the whole diff \u2014 e.g. 'no route file in the change imports db/schema.js or drizzle-orm' \u2014 because two plans (with_skill/run-2, without_skill/run-2) DO add a new `if (provider === LINEAR_PROVIDER)` branch plus a live external call to the existing `POST /settings/test-connection` handler in modules/settings/routes.ts. That is consistent with the pre-existing GitHub branch in that file, but the current assertion is blind to it."
+      },
+      {
+        "reason": "The whole assertion set is non-discriminating for this eval: all four runs (both with_skill and both without_skill) pass 7/7 and satisfy 8/8 expected_steps. The assertions describe the correct answer at a granularity the base model already reaches unaided in this repo, which has GitHubClient/OctokitGitHubClient as a directly analogous, highly imitable precedent one grep away. To measure the skill, the assertions need to target the decisions where the plans actually diverged: whether the adapter subfolder is named for the vendor (`adapters/linear/`) or for the domain (`adapters/tickets/`); whether the container accessor throws ConfigError (3 runs) or returns a typed `null` (with_skill/run-1); whether the new file set stays inside `server/` as the prompt scoped it (with_skill/run-1 also writes two files under `client/src/vendor/shared/`); and whether cached ticket state gets a new table + migration (3 runs) or is recomputed per request (with_skill/run-1)."
+      },
+      {
+        "assertion": "Wires the adapter into platform/container.ts including a ContainerOverrides field",
+        "reason": "Passes on the presence of any field. It does not check that the container is the ONLY constructor of the adapter \u2014 which is the actual onion rule and the thing most likely to be got wrong. 'No file other than platform/container.ts and adapters/index.ts imports the concrete client class' would be a stronger, still-mechanical check (all four happened to satisfy it here)."
+      }
+    ],
+    "overall": "All seven assertions pass on genuine, inspected code, and this run matches the answer key's file paths more literally than either with_skill run (`adapters/linear/graphql.ts`). Since it scores 7/7 and 8/8 without the skill, the assertion set gives no signal about the skill's contribution."
+  },
+  "timing": {
+    "total_tokens": 145607,
+    "duration_ms": 468051,
+    "total_duration_seconds": 468.1,
+    "tool_uses": 39
+  }
+}

@@ -1,0 +1,139 @@
+{
+  "run": "skill_v2/run-3",
+  "eval": "onion-architecture",
+  "expectations": [
+    {
+      "text": "Detects F01 - digests/routes.ts constructs DigestsRepository and calls findByPeriod/deleteById/listRecent, bypassing the service",
+      "passed": true,
+      "evidence": "C7 'digests/routes.ts owns business logic and calls the repository directly', routes.ts:6, 28, 33-44, 52 - 'the handler instantiates the data layer'."
+    },
+    {
+      "text": "Detects F02 - digests/routes.ts owns business branching (cache hit vs regenerate) and the period arithmetic",
+      "passed": true,
+      "evidence": "C7: 'owns the entire cache-or-rebuild decision - window arithmetic, the cached short-circuit, the delete-then-rebuild branch'."
+    },
+    {
+      "text": "Detects F03 - digests/service.ts imports db/schema.js and runs its own select() queries",
+      "passed": true,
+      "evidence": "C5 'DigestsService queries Drizzle directly', service.ts:1, 5, 32-51, 57-60, quoting SKILL.md 'Services never import db/schema.js directly'."
+    },
+    {
+      "text": "Detects F04 - digests/service.ts imports and constructs OctokitGitHubClient outside platform/container.ts",
+      "passed": true,
+      "evidence": "C4 'DigestsService constructs OctokitGitHubClient itself ... Only platform/container.ts may import from adapters/*'."
+    },
+    {
+      "text": "Detects F05 - the GitHub token is read from process.env with an empty-string fallback instead of SecretsProvider",
+      "passed": true,
+      "evidence": "C4: 'The SecretsProvider chain is duplicated ad hoc; process.env.GITHUB_TOKEN is explicitly not where this repo keeps tokens' and '?? '' silently constructs an unauthenticated client instead of failing'."
+    },
+    {
+      "text": "Detects F06 - digests/service.ts value-imports nearest from memory/repository/search.repo.js, past the MemoryRepository facade",
+      "passed": true,
+      "evidence": "C6 'DigestsService imports another module's aggregate repo file' - both the cross-module data-layer import and 'Reaching past the facade' are itemised."
+    },
+    {
+      "text": "Detects F07 - the new module(s) are never registered in server/src/modules/index.ts",
+      "passed": true,
+      "evidence": "C8 'Neither new module is registered; both are dead code ... The registry lists 16 modules and neither digests nor memory is among them'."
+    },
+    {
+      "text": "Detects F08 - reviewer-core/src/review/summarize.ts reads process.env.OPENROUTER_API_KEY and constructs OpenRouterProvider",
+      "passed": true,
+      "evidence": "C1 'summarize.ts constructs its own LLM provider and reads an API key ... Reading process.env.OPENROUTER_API_KEY is a second, independent violation'."
+    },
+    {
+      "text": "Detects F09 - summarize.ts imports node:fs/promises and reads skill bodies off disk",
+      "passed": true,
+      "evidence": "C2 'summarize.ts reads the filesystem ... reviewer-core has zero filesystem access by design'."
+    },
+    {
+      "text": "Detects F10 - summarize.ts returns result.data.findings without routing them through groundFindings()",
+      "passed": true,
+      "evidence": "C3 'summarize.ts returns LLM findings without grounding them'."
+    },
+    {
+      "text": "Detects F11 - the model id (SUMMARY_MODEL) is hardcoded inside the pure engine rather than supplied by the caller",
+      "passed": false,
+      "evidence": "Not reported anywhere. SUMMARY_MODEL is never named; there is no finding or note that the model id is hardcoded in the pure engine, and C1's fix asks only for `llm: LLMProvider` to be added to SummarizeInput."
+    },
+    {
+      "text": "Detects F12 - summarizeReview is never exported from reviewer-core/src/index.ts, so it is unreachable dead code",
+      "passed": false,
+      "evidence": "Not reported. reviewer-core/src/index.ts is cited only for its purity doc comment (C1, C2); the missing summarizeReview export / dead-code point does not appear. C8 covers the server module registry, which is F07, not this."
+    },
+    {
+      "text": "Detects F13 - memory/repository/item.repo.ts (and search.repo.ts) import types back from the facade they compose, a cycle",
+      "passed": true,
+      "evidence": "H9 'memory aggregate files import types back from the facade (cycle)', item.repo.ts:4 and search.repo.ts:4 quoted, 'while repository.ts:13-14 imports both files back'."
+    },
+    {
+      "text": "Detects F14 - server/test/digests-service.test.ts drives a real Postgres but is not named *.it.test.ts",
+      "passed": true,
+      "evidence": "H11 'DB-backed test is missing the .it.test.ts suffix ... Fix: rename to server/test/digests.it.test.ts'."
+    },
+    {
+      "text": "Detects F15 - digests/helpers.ts:1 type-imports MemoryRow from ../memory/repository.js, reaching into another module's data layer (credit only if helpers.ts is named)",
+      "passed": true,
+      "evidence": "H10 (severity: High): 'digests/helpers.ts imports a row type from the memory module's data layer', File `server/src/modules/digests/helpers.ts:1`, quoting the import and SKILL.md's 'Cross-module row types come from db/rows.ts'."
+    },
+    {
+      "text": "Does NOT flag D1 - the service constructor taking the whole Container (documented trade-off)",
+      "passed": true,
+      "evidence": "Explicitly cleared: memory/service.ts 'constructor takes the whole Container (the documented, accepted trade-off in guides/pitfalls-and-tradeoffs.md, not a finding)'."
+    },
+    {
+      "text": "Does NOT flag D2 as a blocking defect - DigestRow ($inferSelect) returned as the response shape (nit is acceptable)",
+      "passed": true,
+      "evidence": "Never raised. digests/repository.ts is cleared generally ('Its problems (M18) are correctness, not layering') and no DTO mapper is demanded; row-as-response-shape is not discussed."
+    },
+    {
+      "text": "Does NOT flag D3 - memory/repository.ts as a thin facade over item.repo.ts/search.repo.ts (prescribed pattern)",
+      "passed": true,
+      "evidence": "Explicitly cleared twice: the verdict ('its facade-over-repository/<aggregate>.repo.ts split is the documented pattern, not a finding') and inside H9 ('To be explicit: the facade-over-aggregate split itself is correct ... Only the import direction is wrong')."
+    },
+    {
+      "text": "Does NOT flag D4 - reviewer-core/src/llm/openrouter.ts importing the openai SDK inside the pure package",
+      "passed": true,
+      "evidence": "Explicitly cleared in C1: 'OpenRouterProvider may live in the package, but it is only ever constructed at a composition root.'"
+    },
+    {
+      "text": "Does NOT flag D5 as a structural defect - embedOrNull swallowing embedder failures (documented degrade-gracefully)",
+      "passed": true,
+      "evidence": "Cleared in Checked and clean ('resolves the embedder through the container port, and degrades gracefully'). L20 flags markUsed being unguarded, a different call site, and only as a non-blocking suggestion."
+    }
+  ],
+  "summary": {
+    "passed": 18,
+    "failed": 2,
+    "total": 20,
+    "pass_rate": 0.9,
+    "recall_of_15": 0.867
+  },
+  "finding_counts": {
+    "total_findings": 21,
+    "planted_detected": 13,
+    "decoys_flagged": 0,
+    "structural_findings": 10,
+    "decoys_cleared_explicitly": [
+      "D1",
+      "D3",
+      "D4",
+      "D5"
+    ],
+    "decoys_unmentioned": [
+      "D2"
+    ]
+  },
+  "timing": {
+    "total_tokens": 96933,
+    "duration_ms": 271671,
+    "total_duration_seconds": 271.7,
+    "tool_uses": 22
+  },
+  "eval_feedback": [
+    "Zero false positives; all five decoys clean, four explicitly cleared.",
+    "Two misses, both reviewer-core policy items: F11 (hardcoded SUMMARY_MODEL) and F12 (missing barrel export). This run spent its extra budget on the test file instead - H12/H13/H14 are three genuine, non-key defects in digests-service.test.ts (missing github override, MockLLMProvider('openrouter') not compiling, pg.db not existing).",
+    "F15 detected as H10, immediately after H9 (F13), both in the High band - the two data-layer findings are reported as a pair with cross-references."
+  ]
+}

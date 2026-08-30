@@ -1,0 +1,108 @@
+{
+  "eval_id": 2,
+  "eval_name": "reviewer-core-purity-review",
+  "run": "with_skill/run-1",
+  "expectations": [
+    {
+      "text": "Identifies that the file constructs its own LLM provider / reads an API key instead of taking an injected provider",
+      "passed": true,
+      "evidence": "Critical finding #1, 'The core constructs its own LLM provider and reads an API key from the environment', cites summarize.ts:5 and :39-41 and quotes `const key = process.env.OPENROUTER_API_KEY` / `new OpenRouterProvider(key, { timeoutMs: 60_000 })`. Remedy given: 'add `llm: LLMProvider` ... to `SummarizeInput`; delete the `OpenRouterProvider` import and the `process.env` read'. Matches planted V2.1 on both lines."
+    },
+    {
+      "text": "Identifies that the file performs filesystem I/O, which this package must not do",
+      "passed": true,
+      "evidence": "Critical finding #2, 'Filesystem I/O inside a package defined as filesystem-free', cites summarize.ts:1, :19-20, :43-46 and quotes `import { readFile } from 'node:fs/promises'` and the `readFile(path, 'utf8')` loop; remedy is to accept resolved bodies from the caller. Matches planted V2.2 (lines 1 and 45)."
+    },
+    {
+      "text": "Identifies that findings are returned without passing through the grounding gate",
+      "passed": true,
+      "evidence": "Critical finding #3, 'The mandatory citation-grounding gate is bypassed', cites summarize.ts:55-66, quotes `findings: result.data.findings`, and states 'Raw model findings are returned ... without ever passing through `groundFindings()`', with a concrete patch calling `groundFindings(result.data.findings, input.diff)`. Matches planted V2.3 (line 64)."
+    },
+    {
+      "text": "Does NOT flag the existing llm/openrouter.ts openai SDK import as a violation",
+      "passed": true,
+      "evidence": "Decoy D2.1 is explicitly cleared, not flagged. Closing section: 'I have not flagged ... `llm/openrouter.ts` living inside the \"pure\" package — that exception is deliberate. What is flagged in #1 is a different file constructing the provider'. No finding targets openrouter.ts."
+    },
+    {
+      "text": "Every reported problem cites a specific file and line",
+      "passed": true,
+      "evidence": "All findings against the proposed file carry file+line ranges (#1 summarize.ts:5,:39-41; #2 :1,:19-20,:43-46; #3 :55-66; #4 :48-60; #5 :43-46,:51; #6 :9-12; #7 :7,:41; #9 :55-66; #12 :48-53). The three exceptions cite a file/directory without a line because the defect is an absence rather than a line of code: #8 `reviewer-core/src/index.ts` (missing export), #10 `reviewer-core/test/` (no tests), #11 `summarize.ts` (whole file — wrong home). Judged PASS under a standard applied identically to all four runs: every finding is anchored to a named file, and line-free citations occur only for absence-of-code findings."
+    }
+  ],
+  "summary": {
+    "passed": 5,
+    "failed": 0,
+    "total": 5,
+    "pass_rate": 1.0
+  },
+  "finding_counts": {
+    "total_findings": 12,
+    "planted_detected": 3,
+    "decoys_flagged": 0,
+    "structural_findings": 5
+  },
+  "finding_counts_note": "structural_findings = #1 (provider constructed inside the core / dependency direction), #2 (fs I/O across the package boundary), #7 (model+timeout policy baked into the core instead of caller-supplied), #8 (missing from the package's public surface / module shape), #11 (whether reviewer-core is the right home at all / file placement). Grounding-gate (#3), API-shape (#4), trust-wrapping (#5), z.custom (#6), telemetry (#9), tests (#10) and prompt budget (#12) counted as non-structural. Findings #4-#7 and #9 correspond to answer_key.legitimate_extra_findings and are NOT counted as noise.",
+  "timing": {
+    "total_tokens": 71061,
+    "duration_ms": 182980,
+    "executor_duration_seconds": 183.0,
+    "total_duration_seconds": 183.0,
+    "tool_uses": 23
+  },
+  "claims": [
+    {
+      "claim": "No file under reviewer-core/src references process.env or node:fs today; this PR would be the first.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "`grep -rn 'node:fs|process\\.env' reviewer-core/src` returns zero hits."
+    },
+    {
+      "claim": "completeStructured's StructuredRequest has no system/user fields and schemaName is required.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "server/src/vendor/shared/adapters.ts:55-70 declares { model, schema, schemaName, messages, temperature?, maxTokens?, timeoutMs?, maxRetries?, sessionId? } — schemaName and messages are non-optional; no system/user."
+    },
+    {
+      "claim": "Finding is a real Zod schema exported as a value from @devdigest/shared, so z.custom<Finding>() discards runtime validation.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "server/src/vendor/shared/contracts/findings.ts declares `export const Finding = z.object({ id, severity, category, title, file, start_line, end_line, rationale, ... })`."
+    },
+    {
+      "claim": "llm/openrouter.ts's presence inside reviewer-core is a documented deliberate exception, not a violation.",
+      "type": "process",
+      "verified": true,
+      "evidence": "Matches answer_key.decoys D2.1; reviewer-core/src/llm/openrouter.ts:1 does `import OpenAI from 'openai'` and is the engine-owned concrete adapter."
+    },
+    {
+      "claim": "The proposed file does not compile against the real assemblePrompt / completeStructured signatures.",
+      "type": "quality",
+      "verified": true,
+      "evidence": "Consistent with the adapters.ts shape above and with answer_key.legitimate_extra_findings; the review did not itself run tsc, so the specific error list is asserted rather than demonstrated (without_skill/run-2 did run it and reports six errors)."
+    }
+  ],
+  "user_notes_summary": {
+    "uncertainties": [],
+    "needs_review": [],
+    "workarounds": []
+  },
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "Does NOT flag the existing llm/openrouter.ts openai SDK import as a violation",
+        "reason": "Non-discriminating in this iteration: all four runs pass, and two of them (both without_skill) pass by simply never mentioning openrouter.ts. Silence and an explicit clearing score identically. Consider splitting into a stricter variant — 'explicitly clears the openrouter.ts adapter as intentional' — which would separate reviews that know the exception from reviews that merely never looked."
+      },
+      {
+        "assertion": "Every reported problem cites a specific file and line",
+        "reason": "Non-discriminating and slightly ill-posed: every run cites file+line for code-present defects and file-only for absence defects (missing index.ts export, missing tests), which cannot have a line. Either exempt absence findings explicitly or drop the assertion."
+      },
+      {
+        "reason": "No assertion covers false positives or the decoy count beyond D2.1, and no assertion covers review economy. This run reported 12 findings and cleared the documented compromises by name; nothing in the assertion set rewards that discipline."
+      },
+      {
+        "reason": "Prominence is not tested. Here all three planted violations were the three Critical items, in the requested most-important-first order — a genuinely better result than burying them, but invisible to the current assertions."
+      }
+    ],
+    "overall": "All five assertions pass; with all four runs at 5/5 the assertion set does not discriminate in this iteration. Differentiation, if any, lives in finding counts, ordering, and whether the decoy is cleared explicitly or merely unmentioned."
+  }
+}

@@ -1,0 +1,139 @@
+{
+  "run": "skill_v1/run-3",
+  "eval": "onion-architecture",
+  "expectations": [
+    {
+      "text": "Detects F01 - digests/routes.ts constructs DigestsRepository and calls findByPeriod/deleteById/listRecent, bypassing the service",
+      "passed": true,
+      "evidence": "Finding 6 'digests/routes.ts is not presentation-only - it holds the caching business logic and talks to the repository', routes.ts:6, 28, 36-47, 52; 'The GET handler at line 52 has the same problem.'"
+    },
+    {
+      "text": "Detects F02 - digests/routes.ts owns business branching (cache hit vs regenerate) and the period arithmetic",
+      "passed": true,
+      "evidence": "Finding 6: 'no direct repository calls and no branching on domain state. The reuse-vs-rebuild rule is the core business rule of this module ... and it is sitting in the HTTP layer'."
+    },
+    {
+      "text": "Detects F03 - digests/service.ts imports db/schema.js and runs its own select() queries",
+      "passed": true,
+      "evidence": "Finding 5 'DigestsService queries Drizzle directly instead of going through its repository ... A service must never import db/schema.js'."
+    },
+    {
+      "text": "Detects F04 - digests/service.ts imports and constructs OctokitGitHubClient outside platform/container.ts",
+      "passed": true,
+      "evidence": "Finding 4 'DigestsService imports and constructs a concrete adapter ... Only platform/container.ts may import from adapters/*'."
+    },
+    {
+      "text": "Detects F05 - the GitHub token is read from process.env with an empty-string fallback instead of SecretsProvider",
+      "passed": true,
+      "evidence": "Finding 4: 'Container.github() ... resolves GITHUB_TOKEN through SecretsProvider, throwing a clean ConfigError when it is missing - this version silently passes '' and fails later as a 401.'"
+    },
+    {
+      "text": "Detects F06 - digests/service.ts value-imports nearest from memory/repository/search.repo.js, past the MemoryRepository facade",
+      "passed": true,
+      "evidence": "Finding 7 'DigestsService reaches into another module's per-aggregate repository file ... reaching past the MemoryRepository facade into repository/<aggregate>.repo.ts'."
+    },
+    {
+      "text": "Detects F07 - the new module(s) are never registered in server/src/modules/index.ts",
+      "passed": true,
+      "evidence": "Finding 15 'Module registration and public export are missing from the PR ... Neither digests nor memory appears in the static module registry'."
+    },
+    {
+      "text": "Detects F08 - reviewer-core/src/review/summarize.ts reads process.env.OPENROUTER_API_KEY and constructs OpenRouterProvider",
+      "passed": true,
+      "evidence": "Finding 2 'summarize.ts constructs its own LLM provider and reads an API key'."
+    },
+    {
+      "text": "Detects F09 - summarize.ts imports node:fs/promises and reads skill bodies off disk",
+      "passed": true,
+      "evidence": "Finding 3 'summarize.ts reads the filesystem ... reviewer-core has no filesystem access by design'."
+    },
+    {
+      "text": "Detects F10 - summarize.ts returns result.data.findings without routing them through groundFindings()",
+      "passed": true,
+      "evidence": "Finding 1 'summarize.ts bypasses the mandatory grounding gate'."
+    },
+    {
+      "text": "Detects F11 - the model id (SUMMARY_MODEL) is hardcoded inside the pure engine rather than supplied by the caller",
+      "passed": false,
+      "evidence": "Not reported. The model id is never named as a defect; the review quotes `model: SUMMARY_MODEL` only inside the grounding code block, and the only trace is a parenthetical inside finding 2's fix: 'add llm: LLMProvider (and ideally model: string) to SummarizeInput'. That is an API-design aside attached to a different violation, not a finding that the model is hardcoded in the pure engine."
+    },
+    {
+      "text": "Detects F12 - summarizeReview is never exported from reviewer-core/src/index.ts, so it is unreachable dead code",
+      "passed": true,
+      "evidence": "Finding 15: 'Likewise summarizeReview is a new public entry point that is not exported from reviewer-core/src/index.ts. Add ... the export in the engine's index.'"
+    },
+    {
+      "text": "Detects F13 - memory/repository/item.repo.ts (and search.repo.ts) import types back from the facade they compose, a cycle",
+      "passed": false,
+      "evidence": "Not detected. The back-import from item.repo.ts/search.repo.ts to the facade is never mentioned; the section 'What is good' praises the split as 'a textbook facade-over-aggregate split ... This matches reviews/repository.ts exactly' without noticing the type direction."
+    },
+    {
+      "text": "Detects F14 - server/test/digests-service.test.ts drives a real Postgres but is not named *.it.test.ts",
+      "passed": true,
+      "evidence": "Finding 8 'A DB-backed test is named *.test.ts ... Fix: rename to server/test/digests.it.test.ts'."
+    },
+    {
+      "text": "Detects F15 - digests/helpers.ts:1 type-imports MemoryRow from ../memory/repository.js, reaching into another module's data layer (credit only if helpers.ts is named)",
+      "passed": true,
+      "evidence": "Finding 13 (severity: 'Should fix'): 'digests/helpers.ts imports a row type from another module's data layer', file `server/src/modules/digests/helpers.ts:1`, quoting the import and citing db/rows.ts."
+    },
+    {
+      "text": "Does NOT flag D1 - the service constructor taking the whole Container (documented trade-off)",
+      "passed": true,
+      "evidence": "Explicitly cleared: 'The whole-Container constructor is this repo's documented, intentional trade-off and is not a finding.'"
+    },
+    {
+      "text": "Does NOT flag D2 as a blocking defect - DigestRow ($inferSelect) returned as the response shape (nit is acceptable)",
+      "passed": true,
+      "evidence": "Not flagged; the row type is named approvingly in the clean list: 'digests/repository.ts itself is well-formed (scoped by workspaceId on every query, Db injected, row type inferred)'. No DTO-mapper demand anywhere."
+    },
+    {
+      "text": "Does NOT flag D3 - memory/repository.ts as a thin facade over item.repo.ts/search.repo.ts (prescribed pattern)",
+      "passed": true,
+      "evidence": "Explicitly cleared: 'memory/repository.ts + repository/{item,search}.repo.ts is a textbook facade-over-aggregate split ... This matches reviews/repository.ts exactly' and 'no unnecessary ports were added for the small memory domain - the layering depth is proportionate.'"
+    },
+    {
+      "text": "Does NOT flag D4 - reviewer-core/src/llm/openrouter.ts importing the openai SDK inside the pure package",
+      "passed": true,
+      "evidence": "Explicitly cleared in finding 2: 'OpenRouterProvider is allowed to live in the package, but is only ever constructed at a consumer's composition root.'"
+    },
+    {
+      "text": "Does NOT flag D5 as a structural defect - embedOrNull swallowing embedder failures (documented degrade-gracefully)",
+      "passed": true,
+      "evidence": "Nit 20 keeps it as a correctness/observability nit: 'the degrade-gracefully behaviour is documented and reasonable, but this also swallows genuine bugs with no log line ... At minimum log at warn.' No layering or structural claim."
+    }
+  ],
+  "summary": {
+    "passed": 18,
+    "failed": 2,
+    "total": 20,
+    "pass_rate": 0.9,
+    "recall_of_15": 0.867
+  },
+  "finding_counts": {
+    "total_findings": 22,
+    "planted_detected": 13,
+    "decoys_flagged": 0,
+    "structural_findings": 9,
+    "decoys_cleared_explicitly": [
+      "D1",
+      "D3",
+      "D4",
+      "D5"
+    ],
+    "decoys_unmentioned": [
+      "D2"
+    ]
+  },
+  "timing": {
+    "total_tokens": 80981,
+    "duration_ms": 211166,
+    "total_duration_seconds": 211.2,
+    "tool_uses": 19
+  },
+  "eval_feedback": [
+    "Zero false positives, all five decoys clean (D3 explicitly and correctly cleared).",
+    "Two misses, both about reviewer-core/memory internals: F11 (hardcoded SUMMARY_MODEL - present only as the parenthetical 'and ideally model: string', judged not a finding) and F13 (the facade/aggregate type cycle, unmentioned while the split is praised).",
+    "F15 detected at position 13 of 22, under 'Should fix' rather than Blocking."
+  ]
+}

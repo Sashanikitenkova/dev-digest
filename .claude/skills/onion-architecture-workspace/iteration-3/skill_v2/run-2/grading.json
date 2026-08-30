@@ -1,0 +1,138 @@
+{
+  "run": "skill_v2/run-2",
+  "eval": "onion-architecture",
+  "expectations": [
+    {
+      "text": "Detects F01 - digests/routes.ts constructs DigestsRepository and calls findByPeriod/deleteById/listRecent, bypassing the service",
+      "passed": true,
+      "evidence": "Finding 7 'routes.ts:6, 28, 36-52 - route owns a repository and the business rules ... GET /digests (line 52) calls the repository directly too, with no service in the path at all'."
+    },
+    {
+      "text": "Detects F02 - digests/routes.ts owns business branching (cache hit vs regenerate) and the period arithmetic",
+      "passed": true,
+      "evidence": "Finding 7: 'the period-window computation, the cache decision, the regenerate/delete rule - is digest domain logic'."
+    },
+    {
+      "text": "Detects F03 - digests/service.ts imports db/schema.js and runs its own select() queries",
+      "passed": true,
+      "evidence": "Finding 5 'service.ts:1, 5, 32-60 - Drizzle queries inside the service ... service.ts must not import db/schema.js at all'."
+    },
+    {
+      "text": "Detects F04 - digests/service.ts imports and constructs OctokitGitHubClient outside platform/container.ts",
+      "passed": true,
+      "evidence": "Finding 4 'service.ts:2, 64 - service imports and constructs a concrete adapter', quoting guides/layer-model.md."
+    },
+    {
+      "text": "Detects F05 - the GitHub token is read from process.env with an empty-string fallback instead of SecretsProvider",
+      "passed": true,
+      "evidence": "Finding 4: 'container.github() resolves GITHUB_TOKEN through SecretsProvider and throws a typed ConfigError when absent, whereas this falls back to '' and will fail later as an opaque 401'."
+    },
+    {
+      "text": "Detects F06 - digests/service.ts value-imports nearest from memory/repository/search.repo.js, past the MemoryRepository facade",
+      "passed": true,
+      "evidence": "Finding 6 'service.ts:6, 83 - reaching into another module's aggregate repo file ... not merely another module's repository.ts, but past its facade into repository/<aggregate>.repo.ts'."
+    },
+    {
+      "text": "Detects F07 - the new module(s) are never registered in server/src/modules/index.ts",
+      "passed": true,
+      "evidence": "Finding 8 'server/src/modules/index.ts - neither module is registered ... every route in this PR 404s'."
+    },
+    {
+      "text": "Detects F08 - reviewer-core/src/review/summarize.ts reads process.env.OPENROUTER_API_KEY and constructs OpenRouterProvider",
+      "passed": true,
+      "evidence": "Finding 1 'summarize.ts:5, 39-41 - the core constructs its own LLM provider and reads an API key'."
+    },
+    {
+      "text": "Detects F09 - summarize.ts imports node:fs/promises and reads skill bodies off disk",
+      "passed": true,
+      "evidence": "Finding 2 'summarize.ts:1, 43-46 - filesystem access inside reviewer-core'."
+    },
+    {
+      "text": "Detects F10 - summarize.ts returns result.data.findings without routing them through groundFindings()",
+      "passed": true,
+      "evidence": "Finding 3 'summarize.ts:55-66 - findings returned without groundFindings()'."
+    },
+    {
+      "text": "Detects F11 - the model id (SUMMARY_MODEL) is hardcoded inside the pure engine rather than supplied by the caller",
+      "passed": true,
+      "evidence": "Finding 17 'summarize.ts:7, 65 - the model is hardcoded. SUMMARY_MODEL = anthropic/claude-3.5-haiku pins one vendor's model id inside the pure core ... Take model from SummarizeInput.'"
+    },
+    {
+      "text": "Detects F12 - summarizeReview is never exported from reviewer-core/src/index.ts, so it is unreachable dead code",
+      "passed": true,
+      "evidence": "Low note: 'reviewer-core/src/index.ts - summarizeReview is not exported from the package entry point. Add it ... or the server cannot import it through @devdigest/reviewer-core.'"
+    },
+    {
+      "text": "Detects F13 - memory/repository/item.repo.ts (and search.repo.ts) import types back from the facade they compose, a cycle",
+      "passed": true,
+      "evidence": "Finding 11 (High) 'memory/repository/item.repo.ts:4 and repository/search.repo.ts:4 - aggregates import back from their facade ... That is a cycle between a class and its own parts', contrasted with reviews/repository/review.repo.ts taking its types from db/rows.ts."
+    },
+    {
+      "text": "Detects F14 - server/test/digests-service.test.ts drives a real Postgres but is not named *.it.test.ts",
+      "passed": true,
+      "evidence": "Finding 9 'server/test/digests-service.test.ts:2, 25 - DB-backed test with the wrong filename ... never runs in the integration lane at all'."
+    },
+    {
+      "text": "Detects F15 - digests/helpers.ts:1 type-imports MemoryRow from ../memory/repository.js, reaching into another module's data layer (credit only if helpers.ts is named)",
+      "passed": true,
+      "evidence": "Finding 10 (severity: High): 'server/src/modules/digests/helpers.ts:1 - cross-module row type from another module's data layer', quoting `import type { MemoryRow } from '../memory/repository.js'` and 'db/rows.ts exists precisely so a consumer can reference a row shape without importing another module's data layer'."
+    },
+    {
+      "text": "Does NOT flag D1 - the service constructor taking the whole Container (documented trade-off)",
+      "passed": true,
+      "evidence": "Explicitly cleared: 'Whole-Container injection into services and row types doubling as DTOs are documented, intentional compromises in this repo (guides/pitfalls-and-tradeoffs.md) and are not reported here.'"
+    },
+    {
+      "text": "Does NOT flag D2 as a blocking defect - DigestRow ($inferSelect) returned as the response shape (nit is acceptable)",
+      "passed": true,
+      "evidence": "Explicitly cleared in the same sentence as D1; finding 10's ask is only that MemoryRow be declared in db/rows.ts, not that a DTO mapper be added."
+    },
+    {
+      "text": "Does NOT flag D3 - memory/repository.ts as a thin facade over item.repo.ts/search.repo.ts (prescribed pattern)",
+      "passed": true,
+      "evidence": "Explicitly cleared twice: in finding 11 ('The facade-over-two-aggregates split itself is fine and I am not flagging it: the doc comment gives an axis-of-change rationale ... which guides/pitfalls-and-tradeoffs.md explicitly accepts') and in Checked and clean ('correct pattern, and not a finding')."
+    },
+    {
+      "text": "Does NOT flag D4 - reviewer-core/src/llm/openrouter.ts importing the openai SDK inside the pure package",
+      "passed": true,
+      "evidence": "Explicitly cleared in finding 1: 'OpenRouterProvider may live in the package, but it is constructed only at a consumer's composition root.'"
+    },
+    {
+      "text": "Does NOT flag D5 as a structural defect - embedOrNull swallowing embedder failures (documented degrade-gracefully)",
+      "passed": true,
+      "evidence": "Cleared in Checked and clean: memory/service.ts 'degrades gracefully on a missing embedder'. Not raised as a defect anywhere."
+    }
+  ],
+  "summary": {
+    "passed": 20,
+    "failed": 0,
+    "total": 20,
+    "pass_rate": 1.0,
+    "recall_of_15": 1.0
+  },
+  "finding_counts": {
+    "total_findings": 21,
+    "planted_detected": 15,
+    "decoys_flagged": 0,
+    "structural_findings": 12,
+    "decoys_cleared_explicitly": [
+      "D1",
+      "D2",
+      "D3",
+      "D4",
+      "D5"
+    ],
+    "decoys_unmentioned": []
+  },
+  "timing": {
+    "total_tokens": 87341,
+    "duration_ms": 211401,
+    "total_duration_seconds": 211.4,
+    "tool_uses": 20
+  },
+  "eval_feedback": [
+    "Full recall (15/15) with zero false positives; all five decoys explicitly cleared.",
+    "F15 is the highest-placed of any run: finding 10, first item in the 'High' band, immediately above F13.",
+    "The review separates F15 from F06 deliberately - finding 6 is the service.ts value import past the facade, finding 10 is the helpers.ts type import - and gives them different remedies."
+  ]
+}

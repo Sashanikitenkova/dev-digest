@@ -1,0 +1,818 @@
+{
+  "metadata": {
+    "skill_name": "onion-architecture",
+    "skill_path": "<path/to/skill>",
+    "executor_model": "<model-name>",
+    "analyzer_model": "<model-name>",
+    "timestamp": "2026-08-29T19:09:50Z",
+    "evals_run": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "runs_per_configuration": 2
+  },
+  "runs": [
+    {
+      "eval_id": 1,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 6,
+        "failed": 0,
+        "total": 6,
+        "time_seconds": 275.8,
+        "tokens": 18933,
+        "tool_calls": 31,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Identifies that routes.ts performs data-access and/or business branching that belongs in the service",
+          "passed": true,
+          "evidence": "Finding 3 (High), 'routes.ts:6,28,33-46 \u2014 the route owns the business logic and talks to the repository directly': quotes line 28 `const repo = new DigestsRepository(app.container.db)`, line 36 `repo.findByPeriod`, line 38 the `if (existing && !req.body.regenerate)` branch, line 42 `repo.deleteById`, and states 'Everything the digest feature actually decides \u2014 what the period window is, whether a cached digest counts, whether to rebuild, and the delete-then-rebuild sequencing \u2014 lives in the handler.' Fix proposes collapsing lines 33-47 into one service call and dropping the repository import. Matches planted V1.1 exactly, including the line set 28/36/38/43/52 (line 52 covered by 'GET /digests should likewise call service.list')."
+        },
+        {
+          "text": "Identifies that service.ts queries the database directly instead of going through the repository",
+          "passed": true,
+          "evidence": "Finding 2 (Critical), 'service.ts:1,5,26\u201356 \u2014 the service issues raw Drizzle queries instead of going through a repository': quotes line 5 `import * as t from '../../db/schema.js'`, line 26 and line 51 `this.container.db.select(...)`. States 'The digests service already constructs a DigestsRepository on line 22 and then reaches past it.' Fix: move both queries onto DigestsRepository. Matches planted V1.2 (lines 5, 26, 51)."
+        },
+        {
+          "text": "Identifies that service.ts constructs the concrete OctokitGitHubClient adapter instead of resolving it from the container",
+          "passed": true,
+          "evidence": "Finding 1 (Critical), 'service.ts:2,58 \u2014 the service imports and constructs a concrete adapter, and reads the token from process.env': quotes line 2 `import { OctokitGitHubClient } from '../../adapters/github/octokit.js'` and line 58 `new OctokitGitHubClient(process.env.GITHUB_TOKEN ?? '')`. Names it a composition-root violation and a SecretsProvider bypass; fix is `await this.container.github()`. Matches planted V1.3 (lines 2, 58) including the secrets half of the rule."
+        },
+        {
+          "text": "Does NOT flag whole-Container constructor injection as a defect",
+          "passed": true,
+          "evidence": "Explicitly CLEARED in the 'Checked and clean \u2014 do not \"fix\" these' section: '**DigestsService taking the whole Container** (service.ts:21). This is the documented, intentional compromise in guides/pitfalls-and-tradeoffs.md \u2014 not a finding.' Appears nowhere in the numbered findings."
+        },
+        {
+          "text": "Does NOT flag the row-type-as-DTO pattern as a defect",
+          "passed": true,
+          "evidence": "Explicitly CLEARED: '**DigestRow = typeof t.digests.$inferSelect in repository.ts:5.** Row-types-as-DTOs is an accepted trade-off here; keeping it in the owning repository rather than db/rows.ts is correct while digests has no cross-cutting consumer.' Finding 15 does mention 'the route returns the raw row' but its substance is a genuine, separate defect \u2014 periodStart/periodEnd/bodyMd are nullable in db/schema/ops.ts:46-48, NULLs sort first under `orderBy(desc(...))`, and the unrelated `deliveredTo` column leaks. It does not assert that row types must be replaced by a hand-modelled domain-entity layer, and the pattern itself is explicitly named as accepted. Graded as cleared, not flagged. (Recorded in eval_feedback as borderline.)"
+        },
+        {
+          "text": "Every reported problem cites a specific file and line",
+          "passed": true,
+          "evidence": "All 16 findings carry a file:line locator in their heading (e.g. 'service.ts:2,58', 'repository.ts:24\u201340', 'constants.ts:6 + service.ts:45', 'service.ts:53\u201354'). The two exceptions are findings that report the ABSENCE of an artifact and therefore have no line to cite: finding 4 (module never registered \u2014 still cites server/src/modules/index.ts and app.ts:194) and finding 14 (no tests \u2014 cites server/test/). Every finding about code present in the fixture is line-anchored."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 1,
+      "configuration": "with_skill",
+      "run_number": 2,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 6,
+        "failed": 0,
+        "total": 6,
+        "time_seconds": 264.4,
+        "tokens": 17587,
+        "tool_calls": 25,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Identifies that routes.ts performs data-access and/or business branching that belongs in the service",
+          "passed": true,
+          "evidence": "Finding H3, 'routes.ts owns the data layer and the business workflow' (routes.ts:6, 28, 33-46, 52): quotes `const repo = new DigestsRepository(app.container.db)`, `repo.findByPeriod`, the `if (existing && !req.body.regenerate)` branch and `repo.deleteById`. States 'the route does the period-window arithmetic (domain policy), the cache decision, the invalidation, and two direct repository calls; GET /digests never touches the service at all.' Fix: expose service.generate/service.listRecent and 'delete DigestsRepository from routes.ts entirely.' Matches planted V1.1 on all five cited lines."
+        },
+        {
+          "text": "Identifies that service.ts queries the database directly instead of going through the repository",
+          "passed": true,
+          "evidence": "Finding H2, 'service.ts queries Drizzle directly and imports db/schema.js' (service.ts:1, 5, 26-45, 51-54): 'The module already has a repository.ts, and the skill's rule is unambiguous... whose bad example is literally \"a service or route file with import * as t from '../../db/schema.js' and its own db.select()... inline\".' Fix: add mergedInPeriod() to repository.ts and drop drizzle-orm and db/schema.js from service.ts. Matches planted V1.2 (lines 5, 26, 51)."
+        },
+        {
+          "text": "Identifies that service.ts constructs the concrete OctokitGitHubClient adapter instead of resolving it from the container",
+          "passed": true,
+          "evidence": "Findings C2 and C3 (Critical). C2 'service.ts imports and constructs a concrete adapter' quotes service.ts:2 `import { OctokitGitHubClient } ...` and service.ts:58 `new OctokitGitHubClient(process.env.GITHUB_TOKEN ?? '')`, calls it a 'Direct Dependency Rule violation' and notes container.ts is the sole importer today. C3 covers the SecretsProvider half: 'Secrets read from process.env, bypassing SecretsProvider'. Fix for both: `await this.container.github()`. Matches planted V1.3 (lines 2, 58)."
+        },
+        {
+          "text": "Does NOT flag whole-Container constructor injection as a defect",
+          "passed": true,
+          "evidence": "Explicitly CLEARED in 'Checked and found clean \u2014 do not \"fix\" these': '**DigestsService taking the whole Container** (service.ts:21) is a documented, accepted compromise (guides/pitfalls-and-tradeoffs.md \u00a7\"descriptive, not aspirational\"), matching ReviewService/RisksService. Not a finding.' Absent from all 18 numbered findings."
+        },
+        {
+          "text": "Does NOT flag the row-type-as-DTO pattern as a defect",
+          "passed": true,
+          "evidence": "Finding L3 cites repository.ts:5 but opens by CLEARING the decoy in the answer key's own terms: 'Row-types-as-DTOs is a documented, accepted compromise here (guides/drizzle-repository-pattern.md \u00a7\"Row types are DTOs\") \u2014 not a bug.' The defect it then reports is a different, genuine one: periodStart/periodEnd/bodyMd are nullable in db/schema/ops.ts while the response implies non-null. It does not propose replacing the row type with a hand-modelled domain-entity layer; it suggests ('consider') a contract for null-safety at the HTTP boundary. Graded as cleared. This is the most borderline call across the four runs and is recorded verbatim in eval_feedback."
+        },
+        {
+          "text": "Every reported problem cites a specific file and line",
+          "passed": true,
+          "evidence": "The most consistently anchored of the four reviews: every one of the 18 findings names file plus line(s), including the absence findings \u2014 M1 cites 'server/src/modules/index.ts:32-49' and 'modules/index.ts:23-26', L2 cites 'server/src/db/schema/ops.ts:41-50'. Only M2 ('No tests') has no line, which is unanchorable by nature; it still names server/test/ and TESTING.md."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 2,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 5,
+        "failed": 0,
+        "total": 5,
+        "time_seconds": 183.0,
+        "tokens": 0,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Identifies that the file constructs its own LLM provider / reads an API key instead of taking an injected provider",
+          "passed": true,
+          "evidence": "Critical finding #1, 'The core constructs its own LLM provider and reads an API key from the environment', cites summarize.ts:5 and :39-41 and quotes `const key = process.env.OPENROUTER_API_KEY` / `new OpenRouterProvider(key, { timeoutMs: 60_000 })`. Remedy given: 'add `llm: LLMProvider` ... to `SummarizeInput`; delete the `OpenRouterProvider` import and the `process.env` read'. Matches planted V2.1 on both lines."
+        },
+        {
+          "text": "Identifies that the file performs filesystem I/O, which this package must not do",
+          "passed": true,
+          "evidence": "Critical finding #2, 'Filesystem I/O inside a package defined as filesystem-free', cites summarize.ts:1, :19-20, :43-46 and quotes `import { readFile } from 'node:fs/promises'` and the `readFile(path, 'utf8')` loop; remedy is to accept resolved bodies from the caller. Matches planted V2.2 (lines 1 and 45)."
+        },
+        {
+          "text": "Identifies that findings are returned without passing through the grounding gate",
+          "passed": true,
+          "evidence": "Critical finding #3, 'The mandatory citation-grounding gate is bypassed', cites summarize.ts:55-66, quotes `findings: result.data.findings`, and states 'Raw model findings are returned ... without ever passing through `groundFindings()`', with a concrete patch calling `groundFindings(result.data.findings, input.diff)`. Matches planted V2.3 (line 64)."
+        },
+        {
+          "text": "Does NOT flag the existing llm/openrouter.ts openai SDK import as a violation",
+          "passed": true,
+          "evidence": "Decoy D2.1 is explicitly cleared, not flagged. Closing section: 'I have not flagged ... `llm/openrouter.ts` living inside the \"pure\" package \u2014 that exception is deliberate. What is flagged in #1 is a different file constructing the provider'. No finding targets openrouter.ts."
+        },
+        {
+          "text": "Every reported problem cites a specific file and line",
+          "passed": true,
+          "evidence": "All findings against the proposed file carry file+line ranges (#1 summarize.ts:5,:39-41; #2 :1,:19-20,:43-46; #3 :55-66; #4 :48-60; #5 :43-46,:51; #6 :9-12; #7 :7,:41; #9 :55-66; #12 :48-53). The three exceptions cite a file/directory without a line because the defect is an absence rather than a line of code: #8 `reviewer-core/src/index.ts` (missing export), #10 `reviewer-core/test/` (no tests), #11 `summarize.ts` (whole file \u2014 wrong home). Judged PASS under a standard applied identically to all four runs: every finding is anchored to a named file, and line-free citations occur only for absence-of-code findings."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 2,
+      "configuration": "with_skill",
+      "run_number": 2,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 5,
+        "failed": 0,
+        "total": 5,
+        "time_seconds": 227.0,
+        "tokens": 0,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Identifies that the file constructs its own LLM provider / reads an API key instead of taking an injected provider",
+          "passed": true,
+          "evidence": "Critical finding #3, 'A concrete adapter is constructed inside the domain core, and the API key is read from `process.env`', cites summarize.ts:5 and :39-41 and names both halves \u2014 composition-root violation and secrets-policy bypass. Remedy: 'add `llm: LLMProvider` to `SummarizeInput` ... delete lines 5 and 39-41'. Matches planted V2.1."
+        },
+        {
+          "text": "Identifies that the file performs filesystem I/O, which this package must not do",
+          "passed": true,
+          "evidence": "Critical finding #2, 'Filesystem I/O inside `reviewer-core` \u2014 package purity broken', cites summarize.ts:1 (`import { readFile } from 'node:fs/promises'`), :19-20 (`skillPaths?: string[]`) and :43-46 (the readFile loop), and prescribes replacing skillPaths with caller-resolved bodies. Matches planted V2.2."
+        },
+        {
+          "text": "Identifies that findings are returned without passing through the grounding gate",
+          "passed": true,
+          "evidence": "Critical finding #1 (listed first), 'The mandatory grounding gate is bypassed', cites summarize.ts:55-66 and states '`result.data.findings` is returned to the caller exactly as the model emitted it. Nothing calls `groundFindings()`.' Matches planted V2.3."
+        },
+        {
+          "text": "Does NOT flag the existing llm/openrouter.ts openai SDK import as a violation",
+          "passed": true,
+          "evidence": "Decoy D2.1 explicitly cleared under 'Checked and clean': '`../llm/openrouter.js` is not itself the problem ... that adapter living inside `reviewer-core` is a documented, deliberate exception. Finding #3 is about this file constructing it, not about the adapter's location.' No finding targets openrouter.ts."
+        },
+        {
+          "text": "Every reported problem cites a specific file and line",
+          "passed": true,
+          "evidence": "Findings #1-#9 all carry bolded summarize.ts line ranges (:55-66, :1/:19-20/:43-46, :5/:39-41, :55-60, :48-53 and :57-58, :43-46 and :51, :3 and :9-12, :7/:56/:65, :25-29 and :55-60). #10 cites summarize.ts:38 plus reviewer-core/src/index.ts (line-free for the missing export); #11 cites reviewer-core/test/ with no line, an absence finding. Same standard applied to all four runs."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 3,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.8,
+        "passed": 4,
+        "failed": 1,
+        "total": 5,
+        "time_seconds": 279.8,
+        "tokens": 12406,
+        "tool_calls": 23,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Reports ZERO structural or layering violations",
+          "passed": false,
+          "evidence": "The review's headline verdict is clean ('**The onion layering is clean.** I found no Dependency Rule violation. What follows are correctness, tenancy, contract and coverage problems \u2014 not layering ones.') and the closing line is 'Layering: no violations found.' But two of the thirteen numbered findings are structural. Finding 12 is 'LOW \u2014 circular type import between the facade and its aggregate files' \u2014 a dependency-direction/file-placement finding, listed in the problem list, assigned Low severity in the summary table ('circular type import; diverges from the reference implementation') and paired with a change: 'Fix (optional): move the shared types to `modules/memory/types.ts` ... and have all three files import from there.' Finding 11 is about module shape (the facade split), though it is hedged (see assertion 4). Under GRADING.md a finding listed among the problems with a severity and a proposed change is flagged, so the count of structural findings against a structurally-correct module is 2, not 0."
+        },
+        {
+          "text": "Does NOT flag whole-Container constructor injection as a defect",
+          "passed": true,
+          "evidence": "Explicitly cleared in the 'What I checked and found clean' section: 'service.ts takes `Container` and reaches infrastructure only through port-typed members ... Whole-`Container` injection is the documented, accepted compromise (`guides/pitfalls-and-tradeoffs.md:19`).' It appears nowhere in the thirteen findings or the summary table."
+        },
+        {
+          "text": "Does NOT flag the row-type-as-DTO pattern as a defect",
+          "passed": true,
+          "evidence": "Finding 3 is about the HTTP payload, not the pattern, and the review says so explicitly: 'Note this is *not* the \"row types double as DTOs\" compromise the skill tells reviewers to leave alone (`guides/drizzle-repository-pattern.md:32`) \u2014 that covers internal cross-module type sharing, not putting an embedding vector on the wire.' The substance of the finding \u2014 a bare `db.select()` shipping the 1536-float `embedding` column on every response \u2014 is the legitimate functional bug the eval expects to be found. Verified against the repo: `db/rows.ts` row-types-as-DTOs is indeed documented as an internal-sharing compromise (`guides/drizzle-repository-pattern.md:32-38`), and the DTO-at-the-HTTP-boundary convention the review cites is real (`repos/helpers.ts:44 toRepoDto`, `agents/helpers.ts:19 toAgentDto`, `conventions/helpers.ts:119 toConventionDto`, `intent/helpers.ts:250 toIntentDto`)."
+        },
+        {
+          "text": "Does NOT flag the repository facade over per-aggregate files as needless indirection",
+          "passed": true,
+          "evidence": "HEDGED, which GRADING.md scores as a pass. Finding 11 raises the split but refuses to call it a defect and proposes no change: 'The doc comment at `repository.ts:7-10` argues the split on axis-of-change rather than aggregates, which is a defensible reading \u2014 I am flagging it as a judgement call to make consciously, not as a defect. If the module is expected to grow ranking/decay/consolidation, keep it. If not, one `repository.ts` is closer to proportionate. **Not a blocker either way.**' It is the only numbered finding in the review with no **Fix:** line, and the decision is handed back to the author symmetrically (keep it / collapse it) rather than prescribed. The review separately endorses the shape itself: 'The facade-over-aggregate shape mirrors `reviews/repository.ts` exactly ... the shape itself is correct.' Confirmed against the repo: `server/src/modules/reviews/repository.ts` uses the identical pattern and near-identical docstring ('The query implementations are colocated, split by aggregate, under `./repository/` ... This class composes them so its public API stays identical')."
+        },
+        {
+          "text": "Does NOT propose restructuring the module into a different folder shape",
+          "passed": true,
+          "evidence": "No collapse, no folder move, no layer rearrangement is proposed. The `{routes,service,repository,constants,helpers}.ts` + `repository/` shape is explicitly endorsed: '`helpers.ts` / `constants.ts` are pure, I/O-free, and match `conventions/`'s file set. No new top-level files outside the module folder.' The only shape-adjacent proposal is finding 12's optional 'move the shared types to `modules/memory/types.ts` (the shape `repo-intel/types.ts` already uses)' \u2014 adding one file that follows an existing in-repo precedent, not a different folder shape. Borderline but passing."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 3,
+      "configuration": "with_skill",
+      "run_number": 2,
+      "result": {
+        "pass_rate": 0.6,
+        "passed": 3,
+        "failed": 2,
+        "total": 5,
+        "time_seconds": 274.5,
+        "tokens": 15618,
+        "tool_calls": 23,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Reports ZERO structural or layering violations",
+          "passed": false,
+          "evidence": "The verdict claims none ('The onion layering in this PR is genuinely clean \u2014 I found no Dependency-Rule violation ... Everything below is a correctness, data-shape, operational or test-coverage problem, not a layering one.'), but two numbered findings are structural. Finding 12, 'Type-import cycle between the facade and its aggregate files', is a dependency-direction finding with a prescribed change: 'Fix: move `MemoryRow`, `InsertMemory` and `NearestOptions` into a `modules/memory/types.ts` ... so the dependency is one-directional.' Finding 13, 'The facade-over-aggregates split may be more structure than this module earns', is a module-shape finding that ends with a concrete proposal to collapse it. Both are listed among the problems under 'Minor / nits' with fixes attached, so the structural finding count against a structurally-correct module is 2."
+        },
+        {
+          "text": "Does NOT flag whole-Container constructor injection as a defect",
+          "passed": true,
+          "evidence": "Explicitly cleared in 'What's correct (checked, no action needed)': '**`Container` injected whole into the service** (`service.ts:30`) and **row types doubling as DTOs** (`repository.ts:16`) are the two compromises `guides/pitfalls-and-tradeoffs.md` explicitly marks as intentional in this codebase. Not flagged.' It appears in none of the fourteen findings."
+        },
+        {
+          "text": "Does NOT flag the row-type-as-DTO pattern as a defect",
+          "passed": true,
+          "evidence": "Cleared by name in the same sentence as above, with the scope of finding 2 explicitly separated from it: '(Item 2 above is about shipping the row *over HTTP*, which is a separate concern from using it internally.)' Finding 2 itself is titled 'Both routes return the raw row, including the 1536-float embedding' and argues from payload size ('`GET /memory/search?limit=50` is ~1 MB of embedding floats that no client can use') \u2014 the legitimate functional bug, not the pattern."
+        },
+        {
+          "text": "Does NOT flag the repository facade over per-aggregate files as needless indirection",
+          "passed": false,
+          "evidence": "FLAGGED. Finding 13: 'The facade-over-aggregates split may be more structure than this module earns. `repository.ts` + `repository/item.repo.ts` + `repository/search.repo.ts` is three files and a delegating class for **four functions over one table**. `guides/pitfalls-and-tradeoffs.md` warns against exactly this...'. It softens to 'this is a judgement call, not a defect' but then prescribes the change anyway: 'I would collapse the two into `repository.ts` now and split when a second table or a real query set arrives.' A proposal to collapse is flagged, not hedged, under the classification rules \u2014 the review acknowledges the fixture's own rationale ('that argument is reasonable') and overrides it. D3.3 is the prescribed pattern, mirroring `server/src/modules/reviews/repository.ts`, which uses the identical composition and docstring."
+        },
+        {
+          "text": "Does NOT propose restructuring the module into a different folder shape",
+          "passed": false,
+          "evidence": "Finding 13 proposes removing the `repository/` folder: 'I would collapse the two into `repository.ts` now.' Finding 12 additionally proposes a new `modules/memory/types.ts`. Note the review does correctly clear the sibling decoy D3.4: 'Extra module files are conventional. `constants.ts` and `helpers.ts` alongside `routes/service/repository` match `settings/` ... so they are not the \"ad hoc extra top-level files\" the checklist warns about.' The failure is confined to the repository split."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 4,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 7,
+        "failed": 0,
+        "total": 7,
+        "time_seconds": 606.8,
+        "tokens": 61911,
+        "tool_calls": 40,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Defines a port interface in vendor/shared/adapters.ts before/alongside the concrete client",
+          "passed": true,
+          "evidence": "Section 6.5 `server/src/vendor/shared/adapters.ts` (plan.md L357-441) inserts a `// ---------- Issue tracker (Linear in v1) ----------` block declaring `export interface IssueRef`, `export interface TrackerIssue` and `export interface IssueTracker { readonly id: 'linear'; getIssue(ref: IssueRef): Promise<TrackerIssue | null>; }`. The port section (6.5) precedes the adapter section (6.6), and the layering table at L79-80 states the port is 'added **before** any adapter exists, per the Rules Checklist'."
+        },
+        {
+          "text": "Places the concrete Linear client under server/src/adapters/",
+          "passed": true,
+          "evidence": "Section 6.6 `server/src/adapters/tickets/linear.ts` (L442+) defines `export class LinearIssueTracker implements IssueTracker` (L587). It is under server/src/adapters/, though in a domain-named subfolder (`adapters/tickets/`) rather than the vendor-named `adapters/linear/` the answer key sketches. Its only imports are `@devdigest/shared` types and `platform/resilience.js`."
+        },
+        {
+          "text": "Wires the adapter into platform/container.ts including a ContainerOverrides field",
+          "passed": true,
+          "evidence": "Section 6.7 (L684-796): Edit 2 adds `import { LinearIssueTracker } from '../adapters/tickets/linear.js';` to container.ts, described as imported 'here and nowhere else'. Edit 3 adds to ContainerOverrides: `tracker?: IssueTracker | null;`. Edit 4 adds the private `_tracker` field, the `async tracker()` accessor, and `this._tracker = undefined;` in `invalidateSecretCaches()`. Grep confirms `LinearIssueTracker` appears only in the adapter file, container.ts and the adapter's own unit test \u2014 never in service.ts or routes.ts."
+        },
+        {
+          "text": "Resolves the Linear API key through SecretsProvider rather than process.env or AppConfig",
+          "passed": true,
+          "evidence": "container.ts accessor (L780-787): `const key = await this.secrets.get('LINEAR_API_KEY'); this._tracker = key ? new LinearIssueTracker(key) : null;`. No `process.env.LINEAR_*` anywhere; the only AppConfig addition is `linearTeamKeys` (\u00a76.8), a non-secret branch-parsing allowlist, not the credential."
+        },
+        {
+          "text": "The service obtains the client from the container instead of importing the concrete class",
+          "passed": true,
+          "evidence": "`server/src/modules/tickets/service.ts` (\u00a76.12) imports only `PrTicket`, `Container` (type), `NotFoundError`, `TicketsRepository`, and the pure helpers. Inside `getForPull`: `const tracker = await this.container.tracker(); if (!tracker) return { state: 'not_configured', ref, issue: null };` \u2014 the port is obtained from the composition root, and `LinearIssueTracker` is never imported."
+        },
+        {
+          "text": "The route handler contains no business branching and no direct data access",
+          "passed": true,
+          "evidence": "`modules/tickets/routes.ts` (\u00a76.13) is one route: `app.get('/pulls/:id/ticket', { schema: { params: IdParams } }, async (req) => { const { workspaceId } = await getContext(app.container, req); return service.getForPull(workspaceId, req.params.id, (obj, msg) => req.log.warn(obj, msg)); });`. No `if`, no drizzle-orm or db/schema import. All five degradation states are decided in service.ts."
+        },
+        {
+          "text": "Registers the new module in server/src/modules/index.ts",
+          "passed": true,
+          "evidence": "\u00a76.14 gives modules/index.ts in full with `import tickets from './tickets/routes.js';` added to the import block and `tickets,` appended to the exported `modules` record \u2014 one import plus one entry, matching the file's own documented 'ADD A MODULE' instruction."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 4,
+      "configuration": "with_skill",
+      "run_number": 2,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 7,
+        "failed": 0,
+        "total": 7,
+        "time_seconds": 551.6,
+        "tokens": 62131,
+        "tool_calls": 29,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Defines a port interface in vendor/shared/adapters.ts before/alongside the concrete client",
+          "passed": true,
+          "evidence": "`server/src/vendor/shared/adapters.ts` *(edit \u2014 append one section)* (plan.md L238-311) adds `// ---------- Issue tracker (Linear; ticket context on a PR) ----------` with `export interface TicketKey`, `export interface TrackerIssue` and `export interface IssueTrackerClient { readonly id: 'linear'; getIssue(key: TicketKey): Promise<TrackerIssue | null>; currentUser(): Promise<string>; }`. The Steps list orders it explicitly: step 2 is the port, step 3 is the adapter. L32-35: 'Port before adapter. `IssueTrackerClient` is declared in `vendor/shared/adapters.ts` ... *before* any Linear code exists.'"
+        },
+        {
+          "text": "Places the concrete Linear client under server/src/adapters/",
+          "passed": true,
+          "evidence": "`server/src/adapters/tickets/linear.ts` (L313+) defines `export class LinearIssueTracker implements IssueTrackerClient` (L393), importing only `@devdigest/shared` types, `platform/errors.js` and `platform/resilience.js`. Under server/src/adapters/, in a domain-named subfolder rather than the answer key's `adapters/linear/`. It is also re-exported from `adapters/index.ts` (L489), matching the existing barrel convention."
+        },
+        {
+          "text": "Wires the adapter into platform/container.ts including a ContainerOverrides field",
+          "passed": true,
+          "evidence": "`server/src/platform/container.ts` *(edit \u2014 three additions)* (L533-605): imports `IssueTrackerClient` (type) and `import { LinearIssueTracker } from '../adapters/tickets/linear.js';`; adds `tickets?: IssueTrackerClient;` to ContainerOverrides next to `github`; adds `private _tickets?: IssueTrackerClient;`, the `async tickets()` resolver, and `this._tickets = undefined;` in `invalidateSecretCaches()`."
+        },
+        {
+          "text": "Resolves the Linear API key through SecretsProvider rather than process.env or AppConfig",
+          "passed": true,
+          "evidence": "container.ts (L586-591): `const key = await this.secrets.get('LINEAR_API_KEY'); if (!key) throw new ConfigError('LINEAR_API_KEY is not configured'); this._tickets = new LinearIssueTracker(key);`. Key decision 8 (L85-86) states it outright: 'The key is a `SecretsProvider` secret (`LINEAR_API_KEY`), never `AppConfig`.' No AppConfig field and no process.env read is added."
+        },
+        {
+          "text": "The service obtains the client from the container instead of importing the concrete class",
+          "passed": true,
+          "evidence": "`modules/tickets/service.ts` imports `IssueTrackerClient` as a TYPE from `@devdigest/shared` only; the instance comes from `let tracker: IssueTrackerClient; try { tracker = await this.container.tickets(); } catch (err) { ... return { state: 'not_configured', ... } }`. The docblock states 'It talks to `IssueTrackerClient` through the container \u2014 it never imports `adapters/tickets/linear.ts`', and grep confirms `LinearIssueTracker` never appears in service.ts."
+        },
+        {
+          "text": "The route handler contains no business branching and no direct data access",
+          "passed": true,
+          "evidence": "`modules/tickets/routes.ts` has two handlers (GET /pulls/:id/ticket and POST /pulls/:id/ticket/refresh); each body is exactly `const { workspaceId } = await getContext(app.container, req); return service.get(workspaceId, req.params.id, {force?}, req.log.warn.bind(req.log));`. No conditionals, no drizzle-orm/db import. Cache TTL, staleness and the four empty states are all decided in service.ts."
+        },
+        {
+          "text": "Registers the new module in server/src/modules/index.ts",
+          "passed": true,
+          "evidence": "`server/src/modules/index.ts` *(edit \u2014 one import + one entry)* (L1151+) is given in full with `import tickets from './tickets/routes.js';` and `tickets,` in the exported `modules` record."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 1,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.83,
+        "passed": 5,
+        "failed": 1,
+        "total": 6,
+        "time_seconds": 286.8,
+        "tokens": 18017,
+        "tool_calls": 22,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Identifies that routes.ts performs data-access and/or business branching that belongs in the service",
+          "passed": true,
+          "evidence": "Blocking finding 3, 'routes.ts:27-48 \u2014 the route layer owns a repository and the business logic': quotes `const repo = new DigestsRepository(app.container.db)` and states 'The handler computes the period, does the cache lookup, decides on the rebuild, deletes the stale row, and only then calls the service.' Notes DigestsRepository is constructed twice (routes.ts:28 and service.ts:22). Fix: move the period computation, cache check and regenerate branch into DigestsService and 'Delete the repository construction from routes.ts'. Matches planted V1.1."
+        },
+        {
+          "text": "Identifies that service.ts queries the database directly instead of going through the repository",
+          "passed": true,
+          "evidence": "Blocking finding 4, 'service.ts:26-45, 51-54 \u2014 raw Drizzle in the service, and an unscoped tenant read': 'The service issues two hand-written container.db.select() queries. That is the repository's job \u2014 the module already has a repository.ts that does not contain these queries, which is what makes the layering violation load-bearing rather than cosmetic.' Fix: add mergedInWindow() and repoById() to DigestsRepository. Matches planted V1.2 (the import on line 5 is not called out separately, but lines 26 and 51 are)."
+        },
+        {
+          "text": "Identifies that service.ts constructs the concrete OctokitGitHubClient adapter instead of resolving it from the container",
+          "passed": true,
+          "evidence": "Blocking finding 2, 'service.ts:58 \u2014 adapter built by hand from process.env, with an empty-string fallback': quotes `new OctokitGitHubClient(process.env.GITHUB_TOKEN ?? '')`, names 'Adapter construction outside the composition root' and 'Secrets bypass' as the first two of four problems, and notes 'nothing else in src/modules/** imports a concrete adapter class'. Fix: `await this.container.github()`. Matches planted V1.3 (line 58; the import on line 2 is implied by 'imports a concrete adapter class' rather than cited separately)."
+        },
+        {
+          "text": "Does NOT flag whole-Container constructor injection as a defect",
+          "passed": true,
+          "evidence": "The pattern is never raised. grep across the review for 'whole Container', 'entire container', 'interface segregation' and 'service.ts:21' returns nothing; DigestsService's constructor signature is not among the 23 reported items. Not flagged, so the negative assertion holds. (Unlike the two with_skill runs, it is also not explicitly cleared \u2014 this review is silent on it rather than affirmative.)"
+        },
+        {
+          "text": "Does NOT flag the row-type-as-DTO pattern as a defect",
+          "passed": false,
+          "evidence": "FLAGGED. Finding 16 under 'Should fix before merge': 'routes.ts:39, 47, 52 \u2014 raw DB rows are the API contract. DigestRow is `typeof t.digests.$inferSelect`, so the response ships deliveredTo ... Every other module returns a Zod-defined contract from vendor/shared (e.g. PrRiskBriefRecord in modules/brief/routes.ts:3), which is what keeps the client from binding to the schema. **Fix:** define a `Digest` record in vendor/shared/contracts, map in the service, and declare it as the route's return type.' This is decoy D1.2's prohibited move \u2014 proposing a parallel hand-modelled contract layer \u2014 given a severity band and a concrete 'should be changed to' fix, with no clearing statement anywhere (the 'Checked and clean' section covers migrations, Zod coercion, getContext, service construction, helper purity and import style, but not the row type). Fails under GRADING.md's Flagged rule."
+        },
+        {
+          "text": "Every reported problem cites a specific file and line",
+          "passed": true,
+          "evidence": "All 16 numbered findings and 5 of the 7 'Minor / follow-ups' bullets carry file:line locators (e.g. 'service.ts:51-63', 'repository.ts:24-40 + routes.ts:33-44', 'constants.ts:10-12', 'repository.ts:56-60'). Finding 8 anchors the registration gap to server/src/modules/index.ts lines 23-26. The unanchored items are the two absence-of-artifact notes \u2014 finding 9 ('No tests', cites server/test/) and the 'Schema follow-up' and 'No docs / no client' bullets \u2014 which have no line to cite and, in the last case, is explicitly labelled 'Fine if the UI is a follow-up PR'. Judged by the same standard applied to all four runs: every finding about code present in the fixture is line-anchored."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 1,
+      "configuration": "without_skill",
+      "run_number": 2,
+      "result": {
+        "pass_rate": 0.83,
+        "passed": 5,
+        "failed": 1,
+        "total": 6,
+        "time_seconds": 276.9,
+        "tokens": 16610,
+        "tool_calls": 27,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Identifies that routes.ts performs data-access and/or business branching that belongs in the service",
+          "passed": true,
+          "evidence": "Blocking finding 1, 'The route drives the repository and owns the business logic \u2014 routes.ts:28, 33-34, 36, 42-46, 52': quotes `const repo = new DigestsRepository(app.container.db)   // :28` and states 'The route then computes the period (:33-34), decides the cache hit (:38), deletes the old row (:43) and reads the list (:52) straight off the repository. That is three layers collapsed into the transport layer.' Backed by eleven counter-example call sites. Fix: give the service generate()/list() and 'Delete the DigestsRepository import from routes.ts entirely.' Matches planted V1.1 on every cited line (28, 36, 38, 43, 52)."
+        },
+        {
+          "text": "Identifies that service.ts queries the database directly instead of going through the repository",
+          "passed": true,
+          "evidence": "Blocking finding 3, 'The service queries the database directly \u2014 service.ts:1, 5, 26-45, 51-54': 'DigestsService imports drizzle-orm and db/schema.js and runs two select() chains against t.pullRequests and t.repos on this.container.db, while a DigestsRepository sits right next to it holding only the trivial queries.' Adds a grep-based check: 'grep for db/schema under modules/ returns repositories... no */service.ts.' Fix: add listMergedInPeriod() to repository.ts. Matches planted V1.2 exactly (lines 5, 26, 51)."
+        },
+        {
+          "text": "Identifies that service.ts constructs the concrete OctokitGitHubClient adapter instead of resolving it from the container",
+          "passed": true,
+          "evidence": "Blocking finding 2, 'The service builds its own GitHub adapter from process.env \u2014 service.ts:2, 58': quotes `new OctokitGitHubClient(process.env.GITHUB_TOKEN ?? '')` and lists 'Adapters are constructed in platform/container.ts, nowhere else', 'Secrets never come from process.env in module code', and the silent `?? ''` degradation. Fix: `await this.container.github()`. Matches planted V1.3 on both lines 2 and 58."
+        },
+        {
+          "text": "Does NOT flag whole-Container constructor injection as a defect",
+          "passed": true,
+          "evidence": "Never raised. grep for 'whole Container', 'entire container', 'interface segregation' and 'service.ts:21' returns nothing across the 19 findings; the only Container references are `ContainerOverrides.github` (finding 2) and `container.jobs.enqueue` (finding 7), both used approvingly. Not flagged, so the negative assertion holds \u2014 though, as with without_skill/run-1, by silence rather than by an explicit clearing."
+        },
+        {
+          "text": "Does NOT flag the row-type-as-DTO pattern as a defect",
+          "passed": false,
+          "evidence": "FLAGGED. Medium finding 13, 'Raw Drizzle rows are returned as the API payload \u2014 routes.ts:39, 47, 52': '`{ digest: existing }` and `{ digests: [...] }` serialise the DB row shape verbatim... The house contract is a snake_case DTO defined in @devdigest/shared and mapped by a toXDto helper \u2014 repos/helpers.ts:44, conventions/helpers.ts:119, agents/helpers.ts:19, brief/helpers.ts:539, intent/helpers.ts:250. **Do:** add a `Digest` contract + `toDigestDto` in helpers.ts and map both responses.' Severity band plus an explicit 'should be changed to' for exactly decoy D1.2's behaviour, with no clearing anywhere \u2014 the 'What is fine' section covers helpers.ts purity, constants.ts, repository workspace scoping, Zod validation and the file layout, but not the row type. Fails under GRADING.md's Flagged rule."
+        },
+        {
+          "text": "Every reported problem cites a specific file and line",
+          "passed": true,
+          "evidence": "18 of 19 findings put file:line in the heading (e.g. 'service.ts:51-63', 'repository.ts:14-40 + routes.ts:33-34', 'db/schema/ops.ts:48', 'helpers.ts:3'). Finding 12 anchors the registration gap to server/src/modules/index.ts and cites lines 19-23 in the body; finding 17 anchors the missing index to server/src/db/schema/ops.ts:41-49 \u2014 the best-cited absence findings of the four runs. The only unanchored item is finding 16 ('No tests \u2014 whole module'), which has no line to cite. Same standard applied to all four runs."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 2,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 5,
+        "failed": 0,
+        "total": 5,
+        "time_seconds": 237.4,
+        "tokens": 0,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Identifies that the file constructs its own LLM provider / reads an API key instead of taking an injected provider",
+          "passed": true,
+          "evidence": "Blocking finding #2, 'The engine constructs its own adapter and reads a secret from `process.env` \u2014 summarize.ts:5, :39-41', quotes the process.env read and the `new OpenRouterProvider(...)` line and lists 'Adapter constructed outside the composition root' and 'Secret read from the environment'. Fix: 'add `llm: LLMProvider` and `model: string` to `SummarizeInput`, delete lines 39-41 and the `OpenRouterProvider` import'. Matches planted V2.1."
+        },
+        {
+          "text": "Identifies that the file performs filesystem I/O, which this package must not do",
+          "passed": true,
+          "evidence": "Blocking finding #1 (listed first), 'Filesystem I/O inside the pure engine \u2014 summarize.ts:1, :44-46', quotes the `node:fs/promises` import and the readFile loop, cites the package docstring, and prescribes accepting resolved bodies. Matches planted V2.2."
+        },
+        {
+          "text": "Identifies that findings are returned without passing through the grounding gate",
+          "passed": true,
+          "evidence": "Blocking finding #3, 'The mandatory citation-grounding gate is bypassed \u2014 summarize.ts:62-66', quotes `findings: result.data.findings,   // straight from the model` and supplies a patch calling `groundFindings(result.data.findings, input.diff)` with a `dropped` list. Matches planted V2.3 (line 64 falls in the cited range)."
+        },
+        {
+          "text": "Does NOT flag the existing llm/openrouter.ts openai SDK import as a violation",
+          "passed": true,
+          "evidence": "Decoy D2.1 is never raised. openrouter.ts is referenced only as evidence about the provider's behaviour (`openrouter.ts:79-82` strict mode, `openrouter.ts:54` default timeout); no finding treats its `openai` SDK import or its presence in the package as a defect. Passes by never raising it rather than by explicitly clearing it."
+        },
+        {
+          "text": "Every reported problem cites a specific file and line",
+          "passed": true,
+          "evidence": "Findings #1-#10 and #13-#15 all carry summarize.ts line references in their headings (:1/:44-46, :5/:39-41, :62-66, :3/:9-12, :55-60, :48-53, :43-46/:51, :7/:56/:65, :25-29/:62-66, :55-60, :44-46, :41, :31-37). Two exceptions are absence findings with a file but no line: #11 (no `reviewer-core/test/summarize.test.ts`) and #12 (`reviewer-core/src/index.ts`, missing export). Same standard applied to all four runs."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 2,
+      "configuration": "without_skill",
+      "run_number": 2,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 5,
+        "failed": 0,
+        "total": 5,
+        "time_seconds": 298.7,
+        "tokens": 0,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Identifies that the file constructs its own LLM provider / reads an API key instead of taking an injected provider",
+          "passed": true,
+          "evidence": "Finding 1, 'CRITICAL \u2014 The engine constructs its own LLM provider and reads a secret from `process.env`', cites `reviewer-core/src/review/summarize.ts:5, 39-41` and quotes the import plus `const key = process.env.OPENROUTER_API_KEY` and `new OpenRouterProvider(...)`. Fix: 'take the provider and the model as inputs ... Delete the `OpenRouterProvider` import, the `process.env` read'. Matches planted V2.1."
+        },
+        {
+          "text": "Identifies that the file performs filesystem I/O, which this package must not do",
+          "passed": true,
+          "evidence": "Finding 2, 'CRITICAL \u2014 Filesystem I/O inside the pure engine, with no path containment', cites summarize.ts:1, 19-20, 43-46, quotes the `node:fs/promises` import and the readFile loop, and states 'It is filesystem access in a package defined by not having any'. Fix: delete the import, the loop and the skillPaths field. Matches planted V2.2."
+        },
+        {
+          "text": "Identifies that findings are returned without passing through the grounding gate",
+          "passed": true,
+          "evidence": "Finding 3, 'CRITICAL \u2014 The mandatory citation-grounding gate is skipped', cites summarize.ts:62-66, quotes the return block, and states 'Model-authored `Finding` objects ... are returned to the caller verbatim. Nothing calls `groundFindings()`.' Matches planted V2.3."
+        },
+        {
+          "text": "Does NOT flag the existing llm/openrouter.ts openai SDK import as a violation",
+          "passed": true,
+          "evidence": "Decoy D2.1 is never raised. openrouter.ts appears only as supporting evidence (`openrouter.ts:79-82` strict mode, `:85` sessionId, `:54` default timeout, `:96, 150-152` error messages); no finding treats the adapter's location or its `openai` import as a defect. Passes by never raising it rather than by explicitly clearing it."
+        },
+        {
+          "text": "Every reported problem cites a specific file and line",
+          "passed": true,
+          "evidence": "Findings 1-7 and 9-11 all carry bolded `reviewer-core/src/review/summarize.ts:<lines>` headers, and finding 4 gives a per-line TypeScript error table (lines 49, 50, 57, 58, 63, 64). Exceptions are absence findings with a file but no line: #8 cites `reviewer-core/src/index.ts` (missing export) and #12 cites `reviewer-core/test/` (no tests). The trailing 'Design note' is a design recommendation rather than a defect and cites line 35 anyway. Same standard applied to all four runs."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 3,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.6,
+        "passed": 3,
+        "failed": 2,
+        "total": 5,
+        "time_seconds": 236.2,
+        "tokens": 13399,
+        "tool_calls": 19,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Reports ZERO structural or layering violations",
+          "passed": false,
+          "evidence": "The verdict opens well ('The layering is right (routes \u2192 service \u2192 repository, `Container` injected, no adapter constructed outside `platform/container.ts`, `getContext` used on every handler)'), but finding 12 is an explicit structural violation report, promoted into the 'Should fix before merge' section: '### 12. `repository/` subfolder diverges from the documented module shape ... `server/CLAUDE.md` documents the map as `modules/<name>/{routes,service,repository}.ts`, and all sixteen existing modules are flat ... it introduces a one-off structure a reader of any other module will not expect. **Fix:** collapse into a single `repository.ts`.' The same finding also carries the dependency-direction concern ('`item.repo.ts:4` and `search.repo.ts:4` import back from the parent `repository.ts` \u2014 a module cycle'). Two structural concerns, both asserted as defects."
+        },
+        {
+          "text": "Does NOT flag whole-Container constructor injection as a defect",
+          "passed": true,
+          "evidence": "Named as correct in the verdict \u2014 'The layering is right (routes \u2192 service \u2192 repository, `Container` injected, no adapter constructed outside `platform/container.ts` ...)' \u2014 and absent from all eighteen findings. Neither `service.ts:30` (`constructor(private container: Container)`) nor the constructor shape is criticised anywhere."
+        },
+        {
+          "text": "Does NOT flag the row-type-as-DTO pattern as a defect",
+          "passed": true,
+          "evidence": "Borderline but passing. Finding 3 ('Raw Drizzle rows are returned to HTTP clients, embedding vector included') is anchored on the legitimate functional bug \u2014 '`MemoryRow` is `typeof t.memory.$inferSelect`, i.e. every column \u2014 including `embedding`, a 1536-element `vector` ... roughly 12,000 floats \u2014 on the order of 100 KB of JSON \u2014 to render eight sentences'. The review never says row types doubling as DTOs is wrong and never asks for a hand-modeled domain layer; its fix reuses the existing shared contract (`toMemoryDto(row): MemoryItem`). Its supporting claim was checked against the repo and holds: every module maps at the HTTP boundary (toRepoDto repos/helpers.ts:44, toAgentDto agents/helpers.ts:19, toConventionDto conventions/helpers.ts:119, toIntentDto intent/helpers.ts:250; skills/context/blast services return shared contract types). Noted for the eval author: this run comes closest of the four to flagging the pattern itself ('Memory is the only module that skips this, so the client would have to be written against the DB schema') and, unlike both with_skill runs, never names the documented row-as-DTO compromise to scope its finding away from it."
+        },
+        {
+          "text": "Does NOT flag the repository facade over per-aggregate files as needless indirection",
+          "passed": false,
+          "evidence": "FLAGGED, and most directly of the four. Finding 12 is titled '`repository/` subfolder diverges from the documented module shape' and argues it as needless indirection: 'The composed class here is 50 lines wrapping two files that total 50 more; the split buys a delegation layer that has to be kept in sync by hand (four pass-through methods) for a table with four queries. The rationale in the docblock (\"they share a table but not a reason to change\") is reasonable in principle but is not yet earning its cost at this size, and it introduces a one-off structure a reader of any other module will not expect.' Fix: 'collapse into a single `repository.ts`.' The claim that 'all sixteen existing modules are flat' is factually wrong \u2014 `server/src/modules/reviews/repository.ts` composes `repository/{review,run,pull,skill-stats}.repo.ts` behind one class, with the same docstring the fixture mirrors. This is both a decoy flag and a false rule assertion."
+        },
+        {
+          "text": "Does NOT propose restructuring the module into a different folder shape",
+          "passed": false,
+          "evidence": "Finding 12 proposes exactly that: '**Fix:** collapse into a single `repository.ts`', with a conditional fallback of 'Move `InsertMemory` / `NearestOptions` / `MemoryRow` into a `types.ts` that both sides import if the folder stays.' The `repository/` folder is proposed for removal."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 3,
+      "configuration": "without_skill",
+      "run_number": 2,
+      "result": {
+        "pass_rate": 0.6,
+        "passed": 3,
+        "failed": 2,
+        "total": 5,
+        "time_seconds": 272.5,
+        "tokens": 14790,
+        "tool_calls": 23,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Reports ZERO structural or layering violations",
+          "passed": false,
+          "evidence": "The 'Checked and clean' section is strong on layering ('routes \u2192 service \u2192 repository with no shortcuts: routes never touch `db`, the service never imports `drizzle-orm`, and the repository is the only layer touching `t.memory`'), but two findings are structural. Finding 10, 'Circular import between `repository.ts` and its `repository/*.repo.ts` children', is a dependency-direction finding in the 'Should fix before merge' tier with a prescribed change: 'Fix: move `MemoryRow` into `db/rows.ts` ... and move `InsertMemory` / `NearestOptions` down into the leaf files, or into a small `repository/types.ts`.' Finding 13 is a module-shape finding: '`repository/` split is premature here.' Two structural findings against a structurally-correct module."
+        },
+        {
+          "text": "Does NOT flag whole-Container constructor injection as a defect",
+          "passed": true,
+          "evidence": "Explicitly cleared under 'Checked and clean': '**Wiring.** `new MemoryService(app.container)` in the route and `new MemoryRepository(container.db)` in the service constructor is exactly what all eleven existing modules do (`risks/service.ts:20`, `conventions/service.ts:87`, \u2026). No adapter is constructed outside `platform/container.ts`.' Not present in any of the nineteen findings."
+        },
+        {
+          "text": "Does NOT flag the row-type-as-DTO pattern as a defect",
+          "passed": true,
+          "evidence": "Finding 4 is scoped to the payload, not the pattern: its title is 'Every response ships the raw 1536-float embedding' and its argument is entirely about size \u2014 'At the default limit of 8 that is ~12k floats serialised as JSON \u2014 on the order of 200 KB of response body per search, for a vector no client can use.' The DTO appears only as the remedy ('add a `toMemoryDto` to `helpers.ts`'), citing a real precedent (`conventions/helpers.ts` `toConventionDto`, verified present at conventions/helpers.ts:119). The review never claims that a row type doubling as a DTO is itself wrong and never asks for a domain-entity layer."
+        },
+        {
+          "text": "Does NOT flag the repository facade over per-aggregate files as needless indirection",
+          "passed": false,
+          "evidence": "FLAGGED. Finding 13 (Minor/nits): '**`repository/` split is premature here.** `reviews/` sets the precedent, but it splits ~500 lines across four aggregates. `memory` splits four one-line functions across two files and then needs a pure pass-through class (`repository.ts:32-50`) to reassemble them. `conventions/`, `risks/`, `context/`, `brief/` all keep a single `repository.ts`. Not blocking \u2014 but a flat `repository.ts` would be less indirection for the same result, and the module can split later when it earns it.' It calls the split premature AND proposes flattening, so it is flagged rather than hedged despite the 'Not blocking' qualifier \u2014 the hedged category requires no proposed change. Note the review is at least accurate about the precedent (it correctly identifies reviews/ as the reference rather than claiming the repo is uniformly flat)."
+        },
+        {
+          "text": "Does NOT propose restructuring the module into a different folder shape",
+          "passed": false,
+          "evidence": "Finding 13 proposes flattening the module: 'a flat `repository.ts` would be less indirection for the same result, and the module can split later when it earns it.' Finding 10 additionally proposes moving `MemoryRow` out of the module into `db/rows.ts` and relocating `InsertMemory`/`NearestOptions` into the leaf files or a new `repository/types.ts`. The review does correctly clear D3.4: '**File layout.** `constants.ts` + a pure, I/O-free `helpers.ts` matches `risks/`, `brief/`, `conventions/`, `context/`.'"
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 4,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 7,
+        "failed": 0,
+        "total": 7,
+        "time_seconds": 468.1,
+        "tokens": 48297,
+        "tool_calls": 39,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Defines a port interface in vendor/shared/adapters.ts before/alongside the concrete client",
+          "passed": true,
+          "evidence": "`server/src/vendor/shared/adapters.ts` (plan.md L238-277) appends `// ---------- Issue tracker (Linear) ----------` with `export interface TicketStateInfo`, `export interface TicketInfo` and `export interface TicketClient { readonly provider: 'linear'; getTicket(key: string): Promise<TicketInfo | null>; }`. The port section precedes the adapter section (L282), and \u00a72 states 'A port, not a direct `fetch`. Every external call in this codebase sits behind an interface in `src/vendor/shared/adapters.ts` and is constructed only in `platform/container.ts`.'"
+        },
+        {
+          "text": "Places the concrete Linear client under server/src/adapters/",
+          "passed": true,
+          "evidence": "`server/src/adapters/linear/graphql.ts` (L282+) defines `export class LinearTicketClient implements TicketClient` (L363), importing zod, `@devdigest/shared` types, `platform/resilience.js` and `platform/errors.js`. This is the exact path shape the answer key names (`server/src/adapters/linear/`), and it is re-exported from `adapters/index.ts` (L439)."
+        },
+        {
+          "text": "Wires the adapter into platform/container.ts including a ContainerOverrides field",
+          "passed": true,
+          "evidence": "`server/src/platform/container.ts` (L501-566), 'Three edits': type import of `TicketClient`, `import { LinearTicketClient } from '../adapters/linear/graphql.js';`, a ContainerOverrides slot `/** Issue-tracker port (Linear). Tests inject MockTicketClient. */ tickets?: TicketClient;`, `private _tickets?: TicketClient;`, the `async tickets()` accessor, and `this._tickets = undefined;` in `invalidateSecretCaches()`."
+        },
+        {
+          "text": "Resolves the Linear API key through SecretsProvider rather than process.env or AppConfig",
+          "passed": true,
+          "evidence": "container.ts accessor (L548-554): `const key = await this.secrets.get('LINEAR_API_KEY'); if (!key) throw new ConfigError('LINEAR_API_KEY is not configured'); this._tickets = new LinearTicketClient(key);`, documented as 'the key lives in SecretsProvider, never AppConfig'. \u00a72 adds that `LocalSecretsProvider.get` already falls through to `process.env[key]`, so no code change is needed \u2014 the resolution still goes through the provider, not a direct `process.env` read."
+        },
+        {
+          "text": "The service obtains the client from the container instead of importing the concrete class",
+          "passed": true,
+          "evidence": "`modules/tickets/service.ts` imports `TicketClient`/`TicketInfo` as types from `@devdigest/shared` and gets the instance via `let client: TicketClient; try { client = await this.container.tickets(); } catch (err) { ... return cached ? rowToResult(cached, true) : emptyResult('not_configured', reference); }`. `LinearTicketClient` appears nowhere in the module."
+        },
+        {
+          "text": "The route handler contains no business branching and no direct data access",
+          "passed": true,
+          "evidence": "`modules/tickets/routes.ts` (L1003-1053) declares `RefreshQuery` as a Zod schema and one handler: `const { workspaceId } = await getContext(app.container, req); return service.getForPull(workspaceId, req.params.id, { refresh: req.query.refresh, log: (obj, msg) => req.log.warn(obj, msg) });`. No conditionals, no drizzle-orm/db/schema import; TTL freshness and the five `status` outcomes are all in service.ts."
+        },
+        {
+          "text": "Registers the new module in server/src/modules/index.ts",
+          "passed": true,
+          "evidence": "`server/src/modules/index.ts` (L1055-1087) \u2014 'One import + one entry (rest unchanged)': `import tickets from './tickets/routes.js';` plus `tickets,` in the exported `modules` record."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 4,
+      "configuration": "without_skill",
+      "run_number": 2,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 7,
+        "failed": 0,
+        "total": 7,
+        "time_seconds": 540.3,
+        "tokens": 54385,
+        "tool_calls": 35,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "Defines a port interface in vendor/shared/adapters.ts before/alongside the concrete client",
+          "passed": true,
+          "evidence": "`server/src/vendor/shared/adapters.ts` *(modified)* (plan.md L257-320) adds `// ---------- Linear (issue tracker, GraphQL) ----------` between the `GitHubClient` block and the Git section, declaring `export interface LinearIssueRef`, `export interface LinearIssue` and `export interface LinearClient { getIssue(ref: LinearIssueRef): Promise<LinearIssue | null>; viewer(): Promise<string>; }`. \u00a72's layering table lists 'Port | `vendor/shared/adapters.ts`' above 'Adapter | `adapters/linear/graphql.ts`', and the section heading is literally 'Layering (routes \u2192 service \u2192 repository, port before adapter)'."
+        },
+        {
+          "text": "Places the concrete Linear client under server/src/adapters/",
+          "passed": true,
+          "evidence": "`server/src/adapters/linear/graphql.ts` *(new)* (L327+) defines `export class LinearGraphQLClient implements LinearClient` (L412), importing only `@devdigest/shared` types and `platform/resilience.js`. Exact match for the answer key's path; described as 'the ONLY file in the server that knows Linear speaks GraphQL' and re-exported from `adapters/index.ts` (L545)."
+        },
+        {
+          "text": "Wires the adapter into platform/container.ts including a ContainerOverrides field",
+          "passed": true,
+          "evidence": "`server/src/platform/container.ts` *(modified)* (L671-738) gives five anchored diffs: `+  LinearClient,` in the shared type import, `+import { LinearGraphQLClient } from '../adapters/linear/graphql.js';`, `+  /** Issue tracker (Linear). Tests inject MockLinearClient \u2014 no network. */ +  linear?: LinearClient;` in ContainerOverrides, `+  private _linear?: LinearClient;`, the `async linear()` resolver next to `github()`, and `+    this._linear = undefined;` in `invalidateSecretCaches()`."
+        },
+        {
+          "text": "Resolves the Linear API key through SecretsProvider rather than process.env or AppConfig",
+          "passed": true,
+          "evidence": "container.ts (L719-725): `const key = await this.secrets.get('LINEAR_API_KEY'); if (!key) throw new ConfigError('LINEAR_API_KEY is not configured'); this._linear = new LinearGraphQLClient(key);`. \u00a75 'Secrets & configuration': '`LINEAR_API_KEY` resolves through `SecretsProvider` (`~/.devdigest/secrets.json`, `process.env` fallback) \u2014 never `AppConfig`/`.env`, per the server convention.' No AppConfig field is added."
+        },
+        {
+          "text": "The service obtains the client from the container instead of importing the concrete class",
+          "passed": true,
+          "evidence": "`modules/tickets/service.ts` imports `LinearClient` as a TYPE from `@devdigest/shared`; the instance comes from `let linear: LinearClient; try { linear = await this.container.linear(); } catch (err) { ... return usable ? toTicketDto(usable, true) : null; }`. `LinearGraphQLClient` never appears in the module \u2014 grep shows it only in the adapter file, adapters/index.ts and container.ts."
+        },
+        {
+          "text": "The route handler contains no business branching and no direct data access",
+          "passed": true,
+          "evidence": "`modules/tickets/routes.ts` (L1064-1120): a `TicketQuery` Zod schema plus one handler whose body is `const { workspaceId } = await getContext(app.container, req); return service.getForPull(workspaceId, req.params.id, { refresh: req.query.refresh === 'true', log: (obj, msg) => req.log.warn(obj, msg) });`. The `=== 'true'` is schema-value normalisation, not business branching; candidate iteration, TTL, staleness and degradation all live in service.ts. No drizzle-orm or db/schema import."
+        },
+        {
+          "text": "Registers the new module in server/src/modules/index.ts",
+          "passed": true,
+          "evidence": "`server/src/modules/index.ts` *(modified)* (L1122-1138): `+import tickets from './tickets/routes.js';` after the pulls import, and `+  tickets,` in the exported `modules` record."
+        }
+      ],
+      "notes": []
+    }
+  ],
+  "run_summary": {
+    "with_skill": {
+      "pass_rate": {
+        "mean": 0.925,
+        "stddev": 0.1488,
+        "min": 0.6,
+        "max": 1.0
+      },
+      "time_seconds": {
+        "mean": 332.8625,
+        "stddev": 156.1677,
+        "min": 183.0,
+        "max": 606.8
+      },
+      "tokens": {
+        "mean": 100808.5,
+        "stddev": 31205.3,
+        "min": 71061,
+        "max": 156432
+      }
+    },
+    "without_skill": {
+      "pass_rate": {
+        "mean": 0.8575,
+        "stddev": 0.1754,
+        "min": 0.6,
+        "max": 1.0
+      },
+      "time_seconds": {
+        "mean": 327.1125,
+        "stddev": 113.1219,
+        "min": 236.2,
+        "max": 540.3
+      },
+      "tokens": {
+        "mean": 98121,
+        "stddev": 28674.6,
+        "min": 74819,
+        "max": 145657
+      }
+    },
+    "delta": {
+      "pass_rate": "+0.07",
+      "time_seconds": "+5.8",
+      "tokens": "+2688"
+    }
+  },
+  "notes": [
+    "Token figures were recomputed from each run's timing.json; the aggregation script read a different field and reported a mean of 23,573 with a min of 0.",
+    "runs_per_configuration was corrected from the script's default of 3 to the actual 2.",
+    "Baseline is NOT a naive model: without_skill runs had the full repository including the auto-loading CLAUDE.md files, which already state several of the skill's rules. The delta here is the skill's marginal value over the repo's existing documentation."
+  ]
+}

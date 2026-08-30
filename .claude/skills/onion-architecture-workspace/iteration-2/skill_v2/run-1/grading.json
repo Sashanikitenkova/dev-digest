@@ -1,0 +1,141 @@
+{
+  "eval": "onion-architecture",
+  "run": "skill_v2/run-1",
+  "expectations": [
+    {
+      "text": "Detects F01: digests/routes.ts constructs DigestsRepository itself and calls findByPeriod / deleteById / listRecent, bypassing the service",
+      "passed": true,
+      "evidence": "Finding 6 (Blocking), 'digests/routes.ts:6,28,36,43,52 - route owns the repository and the business logic': quotes `const repo = new DigestsRepository(app.container.db);` plus the findByPeriod/deleteById calls, and notes 'GET /digests (line 52) bypasses the service entirely.'"
+    },
+    {
+      "text": "Detects F02: the digests POST handler branches on domain state (cache hit vs regenerate) and owns the period arithmetic, which belongs in the service",
+      "passed": true,
+      "evidence": "Same finding 6: 'This handler constructs a repository directly, computes the period window (lines 33-34), and branches on domain state - the reuse-or-rebuild rule.' Fix proposes moving the window math and lookup/delete/build into DigestsService."
+    },
+    {
+      "text": "Detects F03: digests/service.ts imports db/schema.js and runs its own Drizzle select() queries although the module already has a repository",
+      "passed": true,
+      "evidence": "Finding 5 (Blocking), 'service.ts:1,5,32-62 - Drizzle queries in the service': 'The service imports db/schema.js and runs this.container.db.select() against pullRequests ... while a DigestsRepository sits right beside it.'"
+    },
+    {
+      "text": "Detects F04: digests/service.ts imports OctokitGitHubClient and constructs it instead of awaiting container.github()",
+      "passed": true,
+      "evidence": "Finding 4 (Blocking): quotes the OctokitGitHubClient import and construction; 'Only platform/container.ts may import from adapters/*'. Fix: 'const github = await this.container.github();'"
+    },
+    {
+      "text": "Detects F05: the GitHub token is read from process.env with an empty-string fallback instead of resolving through SecretsProvider",
+      "passed": true,
+      "evidence": "Same finding 4: 'Secrets come from SecretsProvider, not the environment ... The `?? ''` here silently builds an unauthenticated client instead.'"
+    },
+    {
+      "text": "Detects F06: digests/service.ts imports memory's repository/search.repo.js directly, reaching past MemoryRepository into another module's data layer",
+      "passed": true,
+      "evidence": "Finding 7 (Blocking): quotes `import { nearest } from '../memory/repository/search.repo.js';` and names both violations - cross-module data-layer import and bypassing the MemoryRepository facade."
+    },
+    {
+      "text": "Detects F07: the new module(s) are never added to server/src/modules/index.ts, so the routes 404 as shipped",
+      "passed": true,
+      "evidence": "Finding 9 (High): 'Neither module is registered - server/src/modules/index.ts is unchanged ... Without it, every route in this PR is dead code.'"
+    },
+    {
+      "text": "Detects F08: reviewer-core/src/review/summarize.ts reads process.env.OPENROUTER_API_KEY and constructs its own OpenRouterProvider",
+      "passed": true,
+      "evidence": "Finding 2 (Blocking): quotes the process.env.OPENROUTER_API_KEY read and `new OpenRouterProvider(key, ...)`; 'the only side effect is an LLM call through an INJECTED LLMProvider.'"
+    },
+    {
+      "text": "Detects F09: summarize.ts imports node:fs/promises and reads skill bodies off disk instead of receiving resolved strings",
+      "passed": true,
+      "evidence": "Finding 3 (Blocking), 'summarize.ts:1,19,44-46 - filesystem access inside reviewer-core': quotes the readFile loop; fix replaces skillPaths with resolved skills and drops node:fs/promises."
+    },
+    {
+      "text": "Detects F10: summarize.ts returns result.data.findings straight from the model without routing them through groundFindings()",
+      "passed": true,
+      "evidence": "Finding 1 (Blocking, top of the review): 'summarizeReview() produces Finding[] straight off result.data.findings (line 64) ... it must pass through the mandatory citation-grounding gate.'"
+    },
+    {
+      "text": "Detects F11: the model id (SUMMARY_MODEL) is hardcoded inside the pure engine rather than supplied by the caller",
+      "passed": false,
+      "evidence": "No finding about the hardcoded SUMMARY_MODEL at summarize.ts:7. The only near-miss is finding 2's remark that the file 'hard-codes the openrouter provider' - that is provider construction (F08), not model choice; the fix list for that finding names only llm injection. grep for 'SUMMARY_MODEL' / 'model id' returns nothing; the word 'model' appears only in 'model output', 'the model's own claim', and inside a suggested completeStructured call."
+    },
+    {
+      "text": "Detects F12: summarizeReview is never exported from reviewer-core/src/index.ts, so it is unreachable dead code",
+      "passed": false,
+      "evidence": "No mention that summarizeReview is missing from reviewer-core/src/index.ts. index.ts is cited three times, but only as the source of the purity contract ('the only side effect is an LLM call...', 'NO database, GitHub, or filesystem access') - never as an unedited barrel. The only 'dead code' remark is about the unregistered Fastify modules (finding 9)."
+    },
+    {
+      "text": "Detects F13: memory/repository/item.repo.ts and search.repo.ts import types back from ../repository.js, which imports both back - a facade/aggregate cycle",
+      "passed": true,
+      "evidence": "Finding 8 (High): quotes both `import type { ... } from '../repository.js'` lines and states 'while repository.ts:13-14 imports both files back. That is a cycle between a class and its own parts.'"
+    },
+    {
+      "text": "Detects F14: server/test/digests-service.test.ts drives a real Postgres via startPg() but is named *.test.ts instead of *.it.test.ts",
+      "passed": true,
+      "evidence": "Finding 10 (High): 'DB-backed test using the unit-lane filename ... Fix: rename to server/test/digests.it.test.ts.'"
+    },
+    {
+      "text": "Does NOT flag D1: the service constructor taking the whole Container rather than narrowly-scoped ports",
+      "passed": true,
+      "evidence": "CLEARED EXPLICITLY. 'Checked and deliberately not flagged' section: 'Both services taking the whole Container - documented, accepted trade-off.'"
+    },
+    {
+      "text": "Does NOT flag D2 as a blocking defect: DigestRow ($inferSelect) returned to callers as the response shape",
+      "passed": true,
+      "evidence": "CLEARED EXPLICITLY. Same section: 'DigestRow / MemoryRow as $inferSelect DTOs - accepted schema-first compromise.' Not raised anywhere as a defect."
+    },
+    {
+      "text": "Does NOT flag D3: memory/repository.ts being a thin facade over repository/item.repo.ts and repository/search.repo.ts",
+      "passed": true,
+      "evidence": "CLEARED EXPLICITLY. 'memory/repository.ts as a facade over repository/{item,search}.repo.ts - this is the documented convention ... and the split is justified on axis of change ... Not premature.' The 'Not premature' phrasing is an endorsement, not an accusation."
+    },
+    {
+      "text": "Does NOT flag D4: reviewer-core/src/llm/openrouter.ts, a concrete adapter importing the openai SDK, living inside the pure reviewer-core package",
+      "passed": true,
+      "evidence": "CLEARED EXPLICITLY. Finding 2 distinguishes file location from construction site: 'The OpenRouterProvider-lives-in-the-core exception covers the adapter *file*; it does not license other files in the package to construct it.'"
+    },
+    {
+      "text": "Does NOT flag D5: embedOrNull swallowing embedder failures so memory search degrades to an empty result",
+      "passed": true,
+      "evidence": "CLEARED EXPLICITLY and used as the positive standard. Finding 11: 'MemoryService.embedOrNull (memory/service.ts:57-65) does this correctly.' The finding raised is against DigestsService for NOT degrading, not against embedOrNull."
+    }
+  ],
+  "summary": {
+    "passed": 17,
+    "failed": 2,
+    "total": 19,
+    "pass_rate": 0.89
+  },
+  "finding_counts": {
+    "total_findings": 18,
+    "planted_detected": 12,
+    "decoys_flagged": 0,
+    "structural_findings": 11,
+    "decoys_cleared_explicitly": 5,
+    "decoys_unmentioned": 0
+  },
+  "decoy_status": {
+    "D1": "cleared_explicitly",
+    "D2": "cleared_explicitly",
+    "D3": "cleared_explicitly",
+    "D4": "cleared_explicitly",
+    "D5": "cleared_explicitly"
+  },
+  "timing": {
+    "total_tokens": 79204,
+    "duration_ms": 177218,
+    "total_duration_seconds": 177.2,
+    "tool_uses": 13
+  },
+  "prominence_note": "All 14 detections that were made appear in the Blocking/High/Medium sections; F13 is reported at position 8 and named in the summary verdict area. No buried-detection issue in this run.",
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "Detects F11: the model id (SUMMARY_MODEL) is hardcoded inside the pure engine rather than supplied by the caller",
+        "reason": "This run says summarize.ts 'hard-codes the openrouter provider', which a keyword grader could read as detecting the hardcoded model. The key should state that F11 requires naming the model id / SUMMARY_MODEL specifically - provider hardcoding is already F08."
+      },
+      {
+        "reason": "F12 (missing barrel export) and F11 are the only two findings any run missed together; both are 'absence' findings that require reading an unchanged file. Worth marking in the key as harder-to-reach so recall differences are interpreted correctly."
+      }
+    ],
+    "overall": "Clean run: no decoy flagged, all five decoys explicitly cleared in a dedicated 'Checked and deliberately not flagged' section. Two planted findings missed, both in reviewer-core (F11, F12)."
+  }
+}

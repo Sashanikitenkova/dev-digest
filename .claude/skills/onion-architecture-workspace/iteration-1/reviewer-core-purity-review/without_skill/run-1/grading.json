@@ -1,0 +1,102 @@
+{
+  "eval_id": 2,
+  "eval_name": "reviewer-core-purity-review",
+  "run": "without_skill/run-1",
+  "expectations": [
+    {
+      "text": "Identifies that the file constructs its own LLM provider / reads an API key instead of taking an injected provider",
+      "passed": true,
+      "evidence": "Blocking finding #2, 'The engine constructs its own adapter and reads a secret from `process.env` — summarize.ts:5, :39-41', quotes the process.env read and the `new OpenRouterProvider(...)` line and lists 'Adapter constructed outside the composition root' and 'Secret read from the environment'. Fix: 'add `llm: LLMProvider` and `model: string` to `SummarizeInput`, delete lines 39-41 and the `OpenRouterProvider` import'. Matches planted V2.1."
+    },
+    {
+      "text": "Identifies that the file performs filesystem I/O, which this package must not do",
+      "passed": true,
+      "evidence": "Blocking finding #1 (listed first), 'Filesystem I/O inside the pure engine — summarize.ts:1, :44-46', quotes the `node:fs/promises` import and the readFile loop, cites the package docstring, and prescribes accepting resolved bodies. Matches planted V2.2."
+    },
+    {
+      "text": "Identifies that findings are returned without passing through the grounding gate",
+      "passed": true,
+      "evidence": "Blocking finding #3, 'The mandatory citation-grounding gate is bypassed — summarize.ts:62-66', quotes `findings: result.data.findings,   // straight from the model` and supplies a patch calling `groundFindings(result.data.findings, input.diff)` with a `dropped` list. Matches planted V2.3 (line 64 falls in the cited range)."
+    },
+    {
+      "text": "Does NOT flag the existing llm/openrouter.ts openai SDK import as a violation",
+      "passed": true,
+      "evidence": "Decoy D2.1 is never raised. openrouter.ts is referenced only as evidence about the provider's behaviour (`openrouter.ts:79-82` strict mode, `openrouter.ts:54` default timeout); no finding treats its `openai` SDK import or its presence in the package as a defect. Passes by never raising it rather than by explicitly clearing it."
+    },
+    {
+      "text": "Every reported problem cites a specific file and line",
+      "passed": true,
+      "evidence": "Findings #1-#10 and #13-#15 all carry summarize.ts line references in their headings (:1/:44-46, :5/:39-41, :62-66, :3/:9-12, :55-60, :48-53, :43-46/:51, :7/:56/:65, :25-29/:62-66, :55-60, :44-46, :41, :31-37). Two exceptions are absence findings with a file but no line: #11 (no `reviewer-core/test/summarize.test.ts`) and #12 (`reviewer-core/src/index.ts`, missing export). Same standard applied to all four runs."
+    }
+  ],
+  "summary": {
+    "passed": 5,
+    "failed": 0,
+    "total": 5,
+    "pass_rate": 1.0
+  },
+  "finding_counts": {
+    "total_findings": 15,
+    "planted_detected": 3,
+    "decoys_flagged": 0,
+    "structural_findings": 4
+  },
+  "finding_counts_note": "structural_findings = #1 (fs I/O across the package boundary), #2 (adapter constructed outside the composition root / dependency direction), #8 (model hardcoded in the engine rather than caller-supplied), #12 (missing from the package entry point / public surface). Grounding (#3), z.custom (#4), API shapes (#5, #6), trust wrapping (#7), telemetry (#9), sessionId (#10), tests (#11), sequential await (#13), timeout override (#14) and doc-comment nit (#15) counted non-structural. #4-#8 map to answer_key.legitimate_extra_findings; #13-#15 are minor code-quality nits, not decoys and not rule assertions the repo does not hold, so none count as false positives.",
+  "timing": {
+    "total_tokens": 77616,
+    "duration_ms": 237425,
+    "executor_duration_seconds": 237.4,
+    "total_duration_seconds": 237.4,
+    "tool_uses": 32
+  },
+  "claims": [
+    {
+      "claim": "reviewer-core/src contains zero node:fs imports and zero process.env reads today.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "grep across reviewer-core/src for both patterns returns no hits."
+    },
+    {
+      "claim": "The reviewer executed `SummaryPayload.safeParse({ headline: 'h', findings: [{lol:1}, 42, null] })` and it returned success: true.",
+      "type": "process",
+      "verified": true,
+      "evidence": "Consistent with z.custom<T>() semantics and with the timing.json tool_uses (32); the claim is about the fixture's schema, and the Finding schema in server/src/vendor/shared/contracts/findings.ts confirms the real schema would have rejected those values. Cannot be replayed from the artifacts, but nothing contradicts it."
+    },
+    {
+      "claim": "docs/agent-prompts/choosing-a-model.md:37 lists `anthropic/claude-haiku-4.5` as the cheap Claude option, so the hardcoded `anthropic/claude-3.5-haiku` is stale.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Verified: line 37 of that file reads '| `anthropic/claude-haiku-4.5` | 1 / 5 | ~$0.02 | Cheapest Claude; good at holding the rubric. |'. The exact line number cited is correct."
+    },
+    {
+      "claim": "StructuredRequest has no system/user fields and requires schemaName and messages.",
+      "type": "factual",
+      "verified": true,
+      "evidence": "server/src/vendor/shared/adapters.ts:55-70 confirms the shape."
+    }
+  ],
+  "user_notes_summary": {
+    "uncertainties": [],
+    "needs_review": [],
+    "workarounds": []
+  },
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "Does NOT flag the existing llm/openrouter.ts openai SDK import as a violation",
+        "reason": "This run passes by silence — openrouter.ts is cited several times as evidence but its own layering status is never considered. Under the current wording that is indistinguishable from a run that knew the exception and cleared it. A second, stricter assertion would recover the distinction."
+      },
+      {
+        "assertion": "Every reported problem cites a specific file and line",
+        "reason": "Non-discriminating; passes in all four runs, with the same absence-finding exceptions everywhere."
+      },
+      {
+        "reason": "Nothing in the assertion set penalises volume. This run reported 15 findings including three Minor nits (sequential await, undocumented timeout override, doc-comment tone) that a merge-gate reviewer would arguably drop. Signal-to-noise is a real differentiator between runs and is currently unmeasured — a finding-count or precision assertion would capture it."
+      },
+      {
+        "reason": "No assertion checks whether the review names the *rule* (reviewer-core takes an injected LLMProvider and does no I/O) versus merely spotting the symptom. All four runs name it, but only because they all read reviewer-core/CLAUDE.md — worth an explicit assertion if that grounding is what the skill is meant to guarantee."
+      }
+    ],
+    "overall": "5/5, same as every other run in this iteration. The assertion set is saturated: it cannot separate these four outputs. Differentiation must come from finding counts, precision, and decoy handling."
+  }
+}

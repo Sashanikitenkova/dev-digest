@@ -1,0 +1,73 @@
+{
+  "eval_id": 1,
+  "eval_name": "digests-module-review",
+  "prompt": "A teammate has opened a PR adding a new `digests` module to the DevDigest server. The proposed files are in FIXTURE_DIR — treat them as the contents of `server/src/modules/digests/` in this repository. Review this PR before it is merged. Report every problem you find, most important first; for each one give the file and line, say what is wrong, and say what should be done about it. Write your review as markdown to OUTPUT_DIR/review.md.",
+  "assertions": [
+    "Identifies that routes.ts performs data-access and/or business branching that belongs in the service",
+    "Identifies that service.ts queries the database directly instead of going through the repository",
+    "Identifies that service.ts constructs the concrete OctokitGitHubClient adapter instead of resolving it from the container",
+    "Does NOT flag whole-Container constructor injection as a defect",
+    "Does NOT flag the row-type-as-DTO pattern as a defect",
+    "Every reported problem cites a specific file and line"
+  ],
+  "answer_key": {
+    "planted": [
+      {
+        "id": "V1.1",
+        "text": "routes.ts constructs DigestsRepository directly (line 28) and the POST handler branches on domain state (lines 38-44) and calls repo.findByPeriod / repo.deleteById / repo.listRecent (lines 36, 43, 52) instead of delegating to DigestsService",
+        "file": "routes.ts",
+        "lines": [
+          28,
+          36,
+          38,
+          43,
+          52
+        ],
+        "rule": "routes.ts is presentation-only: no direct repository calls, no business branching"
+      },
+      {
+        "id": "V1.2",
+        "text": "service.ts imports `* as t from '../../db/schema.js'` (line 5) and runs its own Drizzle queries (lines 26, 51) instead of adding methods to repository.ts",
+        "file": "service.ts",
+        "lines": [
+          5,
+          26,
+          51
+        ],
+        "rule": "all Drizzle access for a domain lives in repository.ts"
+      },
+      {
+        "id": "V1.3",
+        "text": "service.ts imports the concrete adapter OctokitGitHubClient (line 2) and constructs it with process.env.GITHUB_TOKEN (line 58) instead of `await this.container.github()`",
+        "file": "service.ts",
+        "lines": [
+          2,
+          58
+        ],
+        "rule": "only platform/container.ts constructs concrete adapters; secrets resolve via SecretsProvider"
+      }
+    ],
+    "decoys": [
+      {
+        "id": "D1.1",
+        "text": "service.ts line 21 takes the whole Container in its constructor",
+        "why_not_a_bug": "documented, intentional convenience trade-off in this repo (guides/pitfalls-and-tradeoffs.md); flagging it as an interface-segregation problem is a false positive"
+      },
+      {
+        "id": "D1.2",
+        "text": "repository.ts line 5 exports `DigestRow = typeof t.digests.$inferSelect` and it is returned to callers as a DTO",
+        "why_not_a_bug": "row types doubling as DTOs is an accepted, documented compromise; proposing a parallel hand-modelled domain-entity layer is a false positive"
+      }
+    ],
+    "legitimate_extra_findings": [
+      "service.ts calls llm.complete(), but OpenRouterProvider.complete() unconditionally throws — the endpoint would 500 on every call",
+      "the repo row is resolved once from merged[0].repoId and reused for every PR, so multi-repo workspaces resolve the wrong repository",
+      "regenerate deletes the existing digest before the rebuild that can throw, with no transaction",
+      "findByPeriod uses a containment range match while its doc comment claims exact-boundary matching",
+      "the module is never registered in server/src/modules/index.ts, so it is dead code",
+      "the model id is hardcoded rather than resolved through the FEATURE_MODELS / resolveFeatureModel convention",
+      "no tests ship with the module"
+    ],
+    "grading_note": "These are genuine defects in the fixture code, surfaced across runs. They are NOT false positives and must NOT count against precision. Count a finding as a false positive ONLY if it targets a listed decoy or asserts a rule this repository does not hold."
+  }
+}

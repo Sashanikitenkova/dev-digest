@@ -1,0 +1,113 @@
+{
+  "eval_name": "memory-clean-review",
+  "run": "without_skill/run-1",
+  "expectations": [
+    {
+      "text": "Reports ZERO structural or layering violations",
+      "passed": false,
+      "evidence": "The verdict opens well ('The layering is right (routes → service → repository, `Container` injected, no adapter constructed outside `platform/container.ts`, `getContext` used on every handler)'), but finding 12 is an explicit structural violation report, promoted into the 'Should fix before merge' section: '### 12. `repository/` subfolder diverges from the documented module shape ... `server/CLAUDE.md` documents the map as `modules/<name>/{routes,service,repository}.ts`, and all sixteen existing modules are flat ... it introduces a one-off structure a reader of any other module will not expect. **Fix:** collapse into a single `repository.ts`.' The same finding also carries the dependency-direction concern ('`item.repo.ts:4` and `search.repo.ts:4` import back from the parent `repository.ts` — a module cycle'). Two structural concerns, both asserted as defects."
+    },
+    {
+      "text": "Does NOT flag whole-Container constructor injection as a defect",
+      "passed": true,
+      "evidence": "Named as correct in the verdict — 'The layering is right (routes → service → repository, `Container` injected, no adapter constructed outside `platform/container.ts` ...)' — and absent from all eighteen findings. Neither `service.ts:30` (`constructor(private container: Container)`) nor the constructor shape is criticised anywhere."
+    },
+    {
+      "text": "Does NOT flag the row-type-as-DTO pattern as a defect",
+      "passed": true,
+      "evidence": "Borderline but passing. Finding 3 ('Raw Drizzle rows are returned to HTTP clients, embedding vector included') is anchored on the legitimate functional bug — '`MemoryRow` is `typeof t.memory.$inferSelect`, i.e. every column — including `embedding`, a 1536-element `vector` ... roughly 12,000 floats — on the order of 100 KB of JSON — to render eight sentences'. The review never says row types doubling as DTOs is wrong and never asks for a hand-modeled domain layer; its fix reuses the existing shared contract (`toMemoryDto(row): MemoryItem`). Its supporting claim was checked against the repo and holds: every module maps at the HTTP boundary (toRepoDto repos/helpers.ts:44, toAgentDto agents/helpers.ts:19, toConventionDto conventions/helpers.ts:119, toIntentDto intent/helpers.ts:250; skills/context/blast services return shared contract types). Noted for the eval author: this run comes closest of the four to flagging the pattern itself ('Memory is the only module that skips this, so the client would have to be written against the DB schema') and, unlike both with_skill runs, never names the documented row-as-DTO compromise to scope its finding away from it."
+    },
+    {
+      "text": "Does NOT flag the repository facade over per-aggregate files as needless indirection",
+      "passed": false,
+      "evidence": "FLAGGED, and most directly of the four. Finding 12 is titled '`repository/` subfolder diverges from the documented module shape' and argues it as needless indirection: 'The composed class here is 50 lines wrapping two files that total 50 more; the split buys a delegation layer that has to be kept in sync by hand (four pass-through methods) for a table with four queries. The rationale in the docblock (\"they share a table but not a reason to change\") is reasonable in principle but is not yet earning its cost at this size, and it introduces a one-off structure a reader of any other module will not expect.' Fix: 'collapse into a single `repository.ts`.' The claim that 'all sixteen existing modules are flat' is factually wrong — `server/src/modules/reviews/repository.ts` composes `repository/{review,run,pull,skill-stats}.repo.ts` behind one class, with the same docstring the fixture mirrors. This is both a decoy flag and a false rule assertion."
+    },
+    {
+      "text": "Does NOT propose restructuring the module into a different folder shape",
+      "passed": false,
+      "evidence": "Finding 12 proposes exactly that: '**Fix:** collapse into a single `repository.ts`', with a conditional fallback of 'Move `InsertMemory` / `NearestOptions` / `MemoryRow` into a `types.ts` that both sides import if the folder stays.' The `repository/` folder is proposed for removal."
+    }
+  ],
+  "summary": {
+    "passed": 3,
+    "failed": 2,
+    "total": 5,
+    "pass_rate": 0.6
+  },
+  "finding_counts": {
+    "total_findings": 18,
+    "planted_detected": 0,
+    "decoys_flagged": 1,
+    "structural_findings": 2
+  },
+  "structural_findings_detail": [
+    {
+      "id": "12a",
+      "severity": "Should fix before merge",
+      "treatment": "flagged (decoy D3.3)",
+      "text": "`repository/` subfolder diverges from the documented module shape. '`server/CLAUDE.md` documents the map as `modules/<name>/{routes,service,repository}.ts`, and all sixteen existing modules are flat ... the split buys a delegation layer that has to be kept in sync by hand (four pass-through methods) for a table with four queries ... it introduces a one-off structure a reader of any other module will not expect. Fix: collapse into a single `repository.ts`.'"
+    },
+    {
+      "id": "12b",
+      "severity": "Should fix before merge",
+      "treatment": "flagged",
+      "text": "Module cycle inside the same finding: 'note that `item.repo.ts:4` and `search.repo.ts:4` import back from the parent `repository.ts` — a module cycle that is only harmless because both are `import type` and get erased ... Move `InsertMemory` / `NearestOptions` / `MemoryRow` into a `types.ts` that both sides import if the folder stays.'"
+    }
+  ],
+  "structural_counting_rule": "A finding counts as structural when its subject is layering, file placement, module shape, or dependency direction. Both structural concerns here live inside numbered finding 12; they are counted as two concerns so the metric is comparable with runs that split them into separate numbered items. Excluded uniformly across all four runs: the scope/kind enum-duplication finding (substance is drift/DRY) and the 'no tests shipped' finding (substance is coverage).",
+  "execution_metrics": {
+    "total_tool_calls": 19,
+    "total_tokens": 74819,
+    "output_chars": 13399
+  },
+  "timing": {
+    "total_tokens": 74819,
+    "duration_ms": 236238,
+    "executor_duration_seconds": 236.2,
+    "total_duration_seconds": 236.2,
+    "tool_uses": 19
+  },
+  "claims": [
+    {
+      "claim": "server/CLAUDE.md documents the module map as modules/<name>/{routes,service,repository}.ts and all sixteen existing modules are flat",
+      "type": "factual",
+      "verified": false,
+      "evidence": "False. server/src/modules/reviews/ is not flat: reviews/repository.ts composes repository/review.repo.ts, repository/run.repo.ts, repository/pull.repo.ts and repository/skill-stats.repo.ts behind one class, and its docstring ('The query implementations are colocated, split by aggregate, under ./repository/ ... This class composes them so its public API stays identical') is the template the fixture mirrors almost word for word. The review's core justification for collapsing the folder does not hold."
+    },
+    {
+      "claim": "Every sibling module maps rows to a shared contract before returning; Memory is the only module that skips this",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Substantially correct: toRepoDto (repos/helpers.ts:44), toAgentDto (agents/helpers.ts:19), toConventionDto (conventions/helpers.ts:119), toIntentDto (intent/helpers.ts:250), and skills/context/blast services return shared contract types. Slight overstatement ('every'), but the DTO-at-the-boundary convention is real."
+    },
+    {
+      "claim": "drizzle-orm 0.38 exports cosineDistance, verified present alongside l2Distance and innerProduct",
+      "type": "process",
+      "verified": true,
+      "evidence": "The review states it verified this against the pinned dependency; cosineDistance is a standard drizzle-orm export at that version and the suggestion is coherent with the schema's vector() column type."
+    },
+    {
+      "claim": "eq(repoId, X) drops every global and team memory because those rows are stored with repo_id IS NULL",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Correct against the fixture (repository/search.repo.ts:23) and is one of the genuine functional bugs the eval expects to be found."
+    }
+  ],
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "Does NOT flag the repository facade over per-aggregate files as needless indirection",
+        "reason": "This run is the cleanest demonstration that the assertion is discriminating: without the module-shape reference, the reviewer asserted a flatly false premise ('all sixteen existing modules are flat') to justify collapsing the folder, when reviews/repository.ts is the pattern's reference implementation. Worth adding a companion assertion that no review claims a repo-wide fact contradicted by reviews/repository.ts — a wrong-premise structural finding is materially worse than a hedged one and the current pass/fail cannot tell them apart."
+      },
+      {
+        "assertion": "Reports ZERO structural or layering violations",
+        "reason": "As in every run, the fixture's type-only import cycle (repository/*.repo.ts importing types back from ../repository.ts) is an ungraded real structural wrinkle that is not in answer_key.decoys. It guarantees this assertion fails everywhere and therefore discriminates nothing. Either decoy it or remove it from the fixture."
+      },
+      {
+        "assertion": "Does NOT flag the row-type-as-DTO pattern as a defect",
+        "reason": "This assertion is not cleanly gradable as written. D3.2's text ('MemoryRow ... is returned to route callers') describes the same code path as a bug the eval treats as legitimate (the 1536-float embedding on the wire), so every review necessarily proposes a DTO. Re-scope D3.2 to forbid demanding a parallel domain-entity layer, and state explicitly that objecting to the HTTP response shape is allowed."
+      }
+    ],
+    "overall": "Assertions 4 and 5 are the load-bearing ones and they fired correctly here. Assertion 1 is currently non-discriminating and assertion 3 is under-specified; both need tightening before the next iteration."
+  }
+}

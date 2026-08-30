@@ -1,0 +1,118 @@
+{
+  "eval_name": "memory-clean-review",
+  "run": "with_skill/run-2",
+  "expectations": [
+    {
+      "text": "Reports ZERO structural or layering violations",
+      "passed": false,
+      "evidence": "The verdict claims none ('The onion layering in this PR is genuinely clean — I found no Dependency-Rule violation ... Everything below is a correctness, data-shape, operational or test-coverage problem, not a layering one.'), but two numbered findings are structural. Finding 12, 'Type-import cycle between the facade and its aggregate files', is a dependency-direction finding with a prescribed change: 'Fix: move `MemoryRow`, `InsertMemory` and `NearestOptions` into a `modules/memory/types.ts` ... so the dependency is one-directional.' Finding 13, 'The facade-over-aggregates split may be more structure than this module earns', is a module-shape finding that ends with a concrete proposal to collapse it. Both are listed among the problems under 'Minor / nits' with fixes attached, so the structural finding count against a structurally-correct module is 2."
+    },
+    {
+      "text": "Does NOT flag whole-Container constructor injection as a defect",
+      "passed": true,
+      "evidence": "Explicitly cleared in 'What's correct (checked, no action needed)': '**`Container` injected whole into the service** (`service.ts:30`) and **row types doubling as DTOs** (`repository.ts:16`) are the two compromises `guides/pitfalls-and-tradeoffs.md` explicitly marks as intentional in this codebase. Not flagged.' It appears in none of the fourteen findings."
+    },
+    {
+      "text": "Does NOT flag the row-type-as-DTO pattern as a defect",
+      "passed": true,
+      "evidence": "Cleared by name in the same sentence as above, with the scope of finding 2 explicitly separated from it: '(Item 2 above is about shipping the row *over HTTP*, which is a separate concern from using it internally.)' Finding 2 itself is titled 'Both routes return the raw row, including the 1536-float embedding' and argues from payload size ('`GET /memory/search?limit=50` is ~1 MB of embedding floats that no client can use') — the legitimate functional bug, not the pattern."
+    },
+    {
+      "text": "Does NOT flag the repository facade over per-aggregate files as needless indirection",
+      "passed": false,
+      "evidence": "FLAGGED. Finding 13: 'The facade-over-aggregates split may be more structure than this module earns. `repository.ts` + `repository/item.repo.ts` + `repository/search.repo.ts` is three files and a delegating class for **four functions over one table**. `guides/pitfalls-and-tradeoffs.md` warns against exactly this...'. It softens to 'this is a judgement call, not a defect' but then prescribes the change anyway: 'I would collapse the two into `repository.ts` now and split when a second table or a real query set arrives.' A proposal to collapse is flagged, not hedged, under the classification rules — the review acknowledges the fixture's own rationale ('that argument is reasonable') and overrides it. D3.3 is the prescribed pattern, mirroring `server/src/modules/reviews/repository.ts`, which uses the identical composition and docstring."
+    },
+    {
+      "text": "Does NOT propose restructuring the module into a different folder shape",
+      "passed": false,
+      "evidence": "Finding 13 proposes removing the `repository/` folder: 'I would collapse the two into `repository.ts` now.' Finding 12 additionally proposes a new `modules/memory/types.ts`. Note the review does correctly clear the sibling decoy D3.4: 'Extra module files are conventional. `constants.ts` and `helpers.ts` alongside `routes/service/repository` match `settings/` ... so they are not the \"ad hoc extra top-level files\" the checklist warns about.' The failure is confined to the repository split."
+    }
+  ],
+  "summary": {
+    "passed": 3,
+    "failed": 2,
+    "total": 5,
+    "pass_rate": 0.6
+  },
+  "finding_counts": {
+    "total_findings": 17,
+    "planted_detected": 0,
+    "decoys_flagged": 1,
+    "structural_findings": 2
+  },
+  "structural_findings_detail": [
+    {
+      "id": "12",
+      "severity": "Minor/nit",
+      "treatment": "flagged",
+      "text": "Type-import cycle between the facade and its aggregate files. 'Both directions are `import type`, so ... there is no runtime cycle — this is not a bug today, just fragile ... Fix: move `MemoryRow`, `InsertMemory` and `NearestOptions` into a `modules/memory/types.ts` (`repo-intel/types.ts` is the precedent) ... so the dependency is one-directional.'"
+    },
+    {
+      "id": "13",
+      "severity": "Minor/nit",
+      "treatment": "flagged (decoy D3.3)",
+      "text": "The facade-over-aggregates split may be more structure than this module earns. '... three files and a delegating class for four functions over one table ... I would collapse the two into `repository.ts` now and split when a second table or a real query set arrives.'"
+    }
+  ],
+  "structural_counting_rule": "A finding counts as structural when its subject is layering, file placement, module shape, or dependency direction. Excluded uniformly across all four runs: the scope/kind enum-duplication finding (substance is drift/DRY, even though its fix touches where types live) and the 'no tests shipped' finding (substance is coverage, not placement).",
+  "execution_metrics": {
+    "total_tool_calls": 23,
+    "total_tokens": 82902,
+    "output_chars": 15618
+  },
+  "timing": {
+    "total_tokens": 82902,
+    "duration_ms": 274468,
+    "executor_duration_seconds": 274.5,
+    "total_duration_seconds": 274.5,
+    "tool_uses": 23
+  },
+  "claims": [
+    {
+      "claim": "guides/pitfalls-and-tradeoffs.md warns against exactly this facade split",
+      "type": "factual",
+      "verified": true,
+      "evidence": "The guide does say 'don't scaffold a facade-over-aggregates repository for a module that will only ever need two queries' and contrasts settings/ with reviews/. The quotation is accurate; the inference that it condemns this fixture is the reviewer's own, and it collides with D3.3."
+    },
+    {
+      "claim": "reviews/repository/{review,pull}.repo.ts take their row types from db/rows.ts or declare them locally, never from the parent facade",
+      "type": "factual",
+      "verified": true,
+      "evidence": "reviews/repository/review.repo.ts:7 declares ReviewRow locally; reviews/repository.ts:17 imports FindingRow/PullRow from db/rows.js."
+    },
+    {
+      "claim": "No file under memory/ imports anything from server/src/adapters/*, and OpenAIEmbedder is constructed only in platform/container.ts",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Matches the fixture: service.ts:59 is the only infrastructure reach and goes through container.embedder()."
+    },
+    {
+      "claim": "A GET /memory/search?limit=50 response is roughly 1 MB of embedding floats",
+      "type": "quality",
+      "verified": true,
+      "evidence": "50 rows x 1536 float64 values serialized as JSON text is of that order; the underlying defect (bare db.select() in search.repo.ts:16 plus routes returning MemoryRow) is real."
+    },
+    {
+      "claim": "The memory table already exists in 0000_init.sql so no table migration is needed — only a vector index",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Consistent with the other three runs, which independently found memory_ws_idx as the only index on the table and no ivfflat/hnsw index in the migrations."
+    }
+  ],
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "Does NOT flag the repository facade over per-aggregate files as needless indirection",
+        "reason": "This run shows the decoy failing in the most instructive way: the review reasons its way to the right conclusion ('this is a judgement call, not a defect', 'that argument is reasonable') and then reverses itself into a change proposal in the next sentence. The assertion catches it, which is good — but the eval would be sharper if it also recorded WHY, because the trigger is a sentence inside the skill itself ('don't scaffold a facade-over-aggregates repository for a module that will only ever need two queries'). Adding a counter-clause to guides/pitfalls-and-tradeoffs.md naming axis-of-change as a legitimate reason to split is the single highest-leverage skill edit this eval points at."
+      },
+      {
+        "assertion": "Reports ZERO structural or layering violations",
+        "reason": "Same issue as the other runs: the fixture contains a genuine type-only import cycle (repository/*.repo.ts importing types back from ../repository.ts) that is not in answer_key.decoys. All four runs found it, so the assertion fails everywhere and discriminates nothing. Add it to the decoys with an explicit rationale, or remove it from the fixture."
+      },
+      {
+        "reason": "This run's 'What's correct (checked, no action needed)' section clears four decoys by name and is the best artifact in the set for judging whether the reviewer understood the conventions — but no assertion looks at it. An assertion rewarding explicit clearing would separate 'stayed silent' from 'understood and endorsed'."
+      }
+    ],
+    "overall": "Assertions worked as intended on D3.3 here. The interesting result is not that the review flagged the facade but that it flagged it while quoting the skill's own anti-scaffolding warning as justification."
+  }
+}

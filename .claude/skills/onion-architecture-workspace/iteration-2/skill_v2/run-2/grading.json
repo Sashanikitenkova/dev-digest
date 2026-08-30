@@ -1,0 +1,141 @@
+{
+  "eval": "onion-architecture",
+  "run": "skill_v2/run-2",
+  "expectations": [
+    {
+      "text": "Detects F01: digests/routes.ts constructs DigestsRepository itself and calls findByPeriod / deleteById / listRecent, bypassing the service",
+      "passed": true,
+      "evidence": "Finding 7 (Blocking), 'digests/routes.ts:6,28,36,43,52 - the route owns the repository and the business logic': quotes `const repo = new DigestsRepository(app.container.db);`, the findByPeriod/deleteById calls and `return { digests: await repo.listRecent(...) }`."
+    },
+    {
+      "text": "Detects F02: the digests POST handler branches on domain state (cache hit vs regenerate) and owns the period arithmetic, which belongs in the service",
+      "passed": true,
+      "evidence": "Same finding 7: 'What is actually in the handler is the module's core policy - the period window (line 34), the reuse-vs-rebuild decision (38-44), and the delete-then-rebuild sequence.'"
+    },
+    {
+      "text": "Detects F03: digests/service.ts imports db/schema.js and runs its own Drizzle select() queries although the module already has a repository",
+      "passed": true,
+      "evidence": "Finding 5 (Blocking): quotes `import * as t from '../../db/schema.js'` and both inline db.select() calls; 'The module already has a DigestsRepository - these two queries simply weren't put in it.'"
+    },
+    {
+      "text": "Detects F04: digests/service.ts imports OctokitGitHubClient and constructs it instead of awaiting container.github()",
+      "passed": true,
+      "evidence": "Finding 4 (Blocking): quotes the OctokitGitHubClient import and construction; 'If you find yourself importing from server/src/adapters/* anywhere outside container.ts, that's a Dependency Rule violation.' Fix: `await this.container.github()`."
+    },
+    {
+      "text": "Detects F05: the GitHub token is read from process.env with an empty-string fallback instead of resolving through SecretsProvider",
+      "passed": true,
+      "evidence": "Same finding 4: '`process.env.GITHUB_TOKEN ?? ''` duplicates secret handling that Container.github() already does properly ... reads a secret from the environment, which this repo explicitly does not do. The `?? ''` degrades a missing token into unauthenticated calls.'"
+    },
+    {
+      "text": "Detects F06: digests/service.ts imports memory's repository/search.repo.js directly, reaching past MemoryRepository into another module's data layer",
+      "passed": true,
+      "evidence": "Finding 6 (Blocking): quotes the search.repo.js import; 'Reaching past a facade' plus 'Cross-module data-layer coupling'."
+    },
+    {
+      "text": "Detects F07: the new module(s) are never added to server/src/modules/index.ts, so the routes 404 as shipped",
+      "passed": true,
+      "evidence": "Finding 9 (High), 'server/src/modules/index.ts - neither module is registered ... Every route in this PR is currently unreachable, and digests-service.test.ts ... will get a 404.'"
+    },
+    {
+      "text": "Detects F08: reviewer-core/src/review/summarize.ts reads process.env.OPENROUTER_API_KEY and constructs its own OpenRouterProvider",
+      "passed": true,
+      "evidence": "Finding 1 (Blocking, first in the review): quotes the env read and `new OpenRouterProvider(key, ...)`; names it as the guide's 'Bad' case."
+    },
+    {
+      "text": "Detects F09: summarize.ts imports node:fs/promises and reads skill bodies off disk instead of receiving resolved strings",
+      "passed": true,
+      "evidence": "Finding 2 (Blocking): quotes `import { readFile } from 'node:fs/promises'` and the readFile loop; fix replaces skillPaths with resolved skills."
+    },
+    {
+      "text": "Detects F10: summarize.ts returns result.data.findings straight from the model without routing them through groundFindings()",
+      "passed": true,
+      "evidence": "Finding 3 (Blocking): 'Raw model findings go straight to the caller' with the groundFindings() fix quoted."
+    },
+    {
+      "text": "Detects F11: the model id (SUMMARY_MODEL) is hardcoded inside the pure engine rather than supplied by the caller",
+      "passed": true,
+      "evidence": "Finding 10, sub-item: 'Line 7 - SUMMARY_MODEL hardcoded in the core. Model choice is a caller/config decision ... Accept it on SummarizeInput with a default, rather than pinning anthropic/claude-3.5-haiku inside the engine.'"
+    },
+    {
+      "text": "Detects F12: summarizeReview is never exported from reviewer-core/src/index.ts, so it is unreachable dead code",
+      "passed": true,
+      "evidence": "Low/notes bullet: 'reviewer-core/src/review/summarize.ts is not exported from reviewer-core/src/index.ts; add it there if the server is meant to call it.' Detected, but demoted to a one-line note."
+    },
+    {
+      "text": "Detects F13: memory/repository/item.repo.ts and search.repo.ts import types back from ../repository.js, which imports both back - a facade/aggregate cycle",
+      "passed": true,
+      "evidence": "Finding 8 (Blocking): quotes both aggregate imports and 'while repository.ts:13-14 imports both aggregate files back. This is the cycle guides/drizzle-repository-pattern.md ... was written for.'"
+    },
+    {
+      "text": "Detects F14: server/test/digests-service.test.ts drives a real Postgres via startPg() but is named *.test.ts instead of *.it.test.ts",
+      "passed": true,
+      "evidence": "Finding 13 (Medium): 'a real-Postgres test named as a unit test ... Fix: rename to server/test/digests.it.test.ts.'"
+    },
+    {
+      "text": "Does NOT flag D1: the service constructor taking the whole Container rather than narrowly-scoped ports",
+      "passed": true,
+      "evidence": "CLEARED EXPLICITLY. 'Checked and clean': 'memory/service.ts - depends on Container (the documented whole-container convention, explicitly *not* a finding per guides/pitfalls-and-tradeoffs.md).'"
+    },
+    {
+      "text": "Does NOT flag D2 as a blocking defect: DigestRow ($inferSelect) returned to callers as the response shape",
+      "passed": true,
+      "evidence": "CLEARED EXPLICITLY, with a hedge. Low/notes: 'GET /digests returns raw DigestRows. Acceptable under this repo's documented row-types-as-DTOs compromise (guides/drizzle-repository-pattern.md), so not a finding - flagging only because it means a schema column rename is an API break.' Explicitly non-blocking and marked 'not a finding', so it passes; recorded verbatim because the hedge is itself a result."
+    },
+    {
+      "text": "Does NOT flag D3: memory/repository.ts being a thin facade over repository/item.repo.ts and repository/search.repo.ts",
+      "passed": true,
+      "evidence": "CLEARED EXPLICITLY, twice. Finding 8: 'The facade split itself is correct and well-motivated ... Only the import direction is wrong.' And 'Checked and clean': 'Not premature structure; only the import direction (finding 8) is wrong.'"
+    },
+    {
+      "text": "Does NOT flag D4: reviewer-core/src/llm/openrouter.ts, a concrete adapter importing the openai SDK, living inside the pure reviewer-core package",
+      "passed": true,
+      "evidence": "NOT MENTIONED. The file reviewer-core/src/llm/openrouter.ts is never assessed as a placement question; the only references to OpenRouterProvider are to its construction inside summarize.ts (finding 1) and to deleting that import. No purity or layering claim is made against the adapter file itself, so no false positive - but it is not cleared either."
+    },
+    {
+      "text": "Does NOT flag D5: embedOrNull swallowing embedder failures so memory search degrades to an empty result",
+      "passed": true,
+      "evidence": "CLEARED EXPLICITLY. Finding 11: 'MemoryService.embedOrNull() (lines 57-65) in this same PR does it correctly.' 'Checked and clean' adds that memory/service.ts 'degrades gracefully around the embedder.'"
+    }
+  ],
+  "summary": {
+    "passed": 19,
+    "failed": 0,
+    "total": 19,
+    "pass_rate": 1.0
+  },
+  "finding_counts": {
+    "total_findings": 20,
+    "planted_detected": 14,
+    "decoys_flagged": 0,
+    "structural_findings": 13,
+    "decoys_cleared_explicitly": 4,
+    "decoys_unmentioned": 1
+  },
+  "decoy_status": {
+    "D1": "cleared_explicitly",
+    "D2": "cleared_explicitly",
+    "D3": "cleared_explicitly",
+    "D4": "unmentioned",
+    "D5": "cleared_explicitly"
+  },
+  "timing": {
+    "total_tokens": 84177,
+    "duration_ms": 235187,
+    "total_duration_seconds": 235.2,
+    "tool_uses": 18
+  },
+  "prominence_note": "F12 appears only as a Low/notes bullet and is omitted from the closing summary table; F11 appears as a sub-bullet of finding 10 rather than as its own finding. Both still count as detected.",
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "Does NOT flag D2 as a blocking defect: DigestRow ($inferSelect) returned to callers as the response shape",
+        "reason": "Hedged pass worth recording: 'Acceptable under this repo's documented row-types-as-DTOs compromise ... so not a finding - flagging only because it means a schema column rename is an API break.' The eval treats D2 as scored separately; this is exactly the acceptable-nit shape the key describes, and the key could cite it as the reference example."
+      },
+      {
+        "reason": "F12 was detected only as an unnumbered one-line bullet under 'Low / notes' and is absent from the 15-row 'Summary of required changes' table. Prominence is not graded, but a recall-only score hides that this review would not have surfaced F12 to a reader who read the summary table."
+      }
+    ],
+    "overall": "Full recall (14/14) with zero decoys flagged. Four of five decoys explicitly cleared; D4 simply never came up."
+  }
+}

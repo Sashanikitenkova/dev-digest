@@ -1,0 +1,142 @@
+{
+  "eval": "onion-architecture",
+  "run": "skill_v1/run-2",
+  "expectations": [
+    {
+      "text": "Detects F01: digests/routes.ts constructs DigestsRepository itself and calls findByPeriod / deleteById / listRecent, bypassing the service",
+      "passed": true,
+      "evidence": "Finding 7 (High), 'digests/routes.ts:6,28,36-46 - the route owns the business decision and talks to the repository': quotes `const repo = new DigestsRepository(app.container.db);` plus findByPeriod/deleteById; fix says 'drop the DigestsRepository import from routes.ts entirely.'"
+    },
+    {
+      "text": "Detects F02: the digests POST handler branches on domain state (cache hit vs regenerate) and owns the period arithmetic, which belongs in the service",
+      "passed": true,
+      "evidence": "Same finding 7: 'the route constructs a repository, computes the period window, and implements the entire reuse-vs-rebuild policy - the module's headline behaviour ... None of it is testable without booting Fastify.'"
+    },
+    {
+      "text": "Detects F03: digests/service.ts imports db/schema.js and runs its own Drizzle select() queries although the module already has a repository",
+      "passed": true,
+      "evidence": "Finding 8 (High), 'raw Drizzle in a service, while its own repository sits unused': quotes the db/schema.js import and both db.select() calls; 'breaks the invariant stated in reviews/repository.ts.'"
+    },
+    {
+      "text": "Detects F04: digests/service.ts imports OctokitGitHubClient and constructs it instead of awaiting container.github()",
+      "passed": true,
+      "evidence": "Finding 4 (Blocking): quotes the OctokitGitHubClient import and construction; 'Only platform/container.ts may import from adapters/*.'"
+    },
+    {
+      "text": "Detects F05: the GitHub token is read from process.env with an empty-string fallback instead of resolving through SecretsProvider",
+      "passed": true,
+      "evidence": "Same finding 4: 'Secrets resolve through SecretsProvider (~/.devdigest/secrets.json), never process.env ... `?? ''` degrades silently to an *unauthenticated* Octokit client.'"
+    },
+    {
+      "text": "Detects F06: digests/service.ts imports memory's repository/search.repo.js directly, reaching past MemoryRepository into another module's data layer",
+      "passed": true,
+      "evidence": "Finding 9 (High): quotes the search.repo.js import; 'the guide names importing repository/<aggregate>.repo.ts directly as the inverse mistake ... It is worse across a module boundary.'"
+    },
+    {
+      "text": "Detects F07: the new module(s) are never added to server/src/modules/index.ts, so the routes 404 as shipped",
+      "passed": true,
+      "evidence": "Finding 5 (Blocking): 'server/src/modules/index.ts - neither module is registered ... Both plugins are dead code as shipped, and the integration test's POST /digests would 404.'"
+    },
+    {
+      "text": "Detects F08: reviewer-core/src/review/summarize.ts reads process.env.OPENROUTER_API_KEY and constructs its own OpenRouterProvider",
+      "passed": true,
+      "evidence": "Finding 1 (Blocking, first in the review): quotes the env read and OpenRouterProvider construction; 'it may only be constructed at a composition root.'"
+    },
+    {
+      "text": "Detects F09: summarize.ts imports node:fs/promises and reads skill bodies off disk instead of receiving resolved strings",
+      "passed": true,
+      "evidence": "Finding 2 (Blocking): quotes the node:fs/promises import and readFile loop; 'reviewer-core has zero filesystem access by design.'"
+    },
+    {
+      "text": "Detects F10: summarize.ts returns result.data.findings straight from the model without routing them through groundFindings()",
+      "passed": true,
+      "evidence": "Finding 3 (Blocking): 'Raw model findings go straight out ... hallucinated citations land in the UI', with the groundFindings() fix in code."
+    },
+    {
+      "text": "Detects F11: the model id (SUMMARY_MODEL) is hardcoded inside the pure engine rather than supplied by the caller",
+      "passed": true,
+      "evidence": "Finding 19 (Medium), 'summarize.ts:7,66 - model hardcoded inside the engine': '`const SUMMARY_MODEL = 'anthropic/claude-3.5-haiku';` - every other engine entry point takes the model from its input (ReviewInput.model) ... Fix: add `model: string` to SummarizeInput.'"
+    },
+    {
+      "text": "Detects F12: summarizeReview is never exported from reviewer-core/src/index.ts, so it is unreachable dead code",
+      "passed": true,
+      "evidence": "Trailing paragraph of finding 6: 'Related: summarize.ts is not re-exported from reviewer-core/src/index.ts. That barrel is the package's public surface ... so nothing can call this function until it is exported there.'"
+    },
+    {
+      "text": "Detects F13: memory/repository/item.repo.ts and search.repo.ts import types back from ../repository.js, which imports both back - a facade/aggregate cycle",
+      "passed": false,
+      "evidence": "NOT DETECTED. No finding anywhere about the aggregate files importing types back from ../repository.js. grep for 'cycle', 'NearestOptions', 'InsertMemory', 'db/rows.ts' returns nothing relevant: item.repo.ts is cited only at :21 for the markUsed comment (finding 17), and repository.ts appears only in the 'what I deliberately did not flag' section praising the facade split ('a textbook facade-over-aggregate split ... This matches reviews/repository.ts exactly'), with no remark on import direction."
+    },
+    {
+      "text": "Detects F14: server/test/digests-service.test.ts drives a real Postgres via startPg() but is named *.test.ts instead of *.it.test.ts",
+      "passed": true,
+      "evidence": "Finding 11 (High): 'wrong filename for a DB-backed test ... this lands in the unit lane ... Fix: rename to server/test/digests.it.test.ts.'"
+    },
+    {
+      "text": "Does NOT flag D1: the service constructor taking the whole Container rather than narrowly-scoped ports",
+      "passed": true,
+      "evidence": "CLEARED EXPLICITLY. 'Per guides/pitfalls-and-tradeoffs.md, these are **not** findings and should not be \"fixed\": Both services taking the whole Container in their constructor (digests/service.ts:27, memory/service.ts:30) - the documented, accepted convenience trade-off.'"
+    },
+    {
+      "text": "Does NOT flag D2 as a blocking defect: DigestRow ($inferSelect) returned to callers as the response shape",
+      "passed": true,
+      "evidence": "CLEARED EXPLICITLY. Same list: 'DigestRow / MemoryRow being $inferSelect row types used as DTOs - schema-shaped domain types are a deliberate compromise here, not an anemic-domain smell.'"
+    },
+    {
+      "text": "Does NOT flag D3: memory/repository.ts being a thin facade over repository/item.repo.ts and repository/search.repo.ts",
+      "passed": true,
+      "evidence": "CLEARED EXPLICITLY. 'memory/repository.ts is a textbook facade-over-aggregate split (item.repo.ts for writes, search.repo.ts for vector search), with a clear rationale in its doc comment for why the two files have different reasons to change. This matches reviews/repository.ts exactly.'"
+    },
+    {
+      "text": "Does NOT flag D4: reviewer-core/src/llm/openrouter.ts, a concrete adapter importing the openai SDK, living inside the pure reviewer-core package",
+      "passed": true,
+      "evidence": "CLEARED EXPLICITLY. 'OpenRouterProvider physically living inside reviewer-core - the documented exception. The finding in #1 is about *constructing* it in summarize.ts, not about where the class lives.'"
+    },
+    {
+      "text": "Does NOT flag D5: embedOrNull swallowing embedder failures so memory search degrades to an empty result",
+      "passed": true,
+      "evidence": "CLEARED EXPLICITLY as architecture, with a logging-only nit. Good-list: 'MemoryService.embedOrNull correctly implements the container's documented degrade-gracefully contract for embedder().' Finding 25 (Low) asks only for observability: 'The graceful degradation is right; make it observable - log at warn.' The key states that arguing for logging is a legitimate correctness nit and does not count as flagging D5."
+    }
+  ],
+  "summary": {
+    "passed": 18,
+    "failed": 1,
+    "total": 19,
+    "pass_rate": 0.95
+  },
+  "finding_counts": {
+    "total_findings": 25,
+    "planted_detected": 13,
+    "decoys_flagged": 0,
+    "structural_findings": 12,
+    "decoys_cleared_explicitly": 5,
+    "decoys_unmentioned": 0
+  },
+  "decoy_status": {
+    "D1": "cleared_explicitly",
+    "D2": "cleared_explicitly",
+    "D3": "cleared_explicitly",
+    "D4": "cleared_explicitly",
+    "D5": "cleared_explicitly"
+  },
+  "timing": {
+    "total_tokens": 93931,
+    "duration_ms": 277538,
+    "total_duration_seconds": 277.5,
+    "tool_uses": 26
+  },
+  "prominence_note": "F12 is a trailing 'Related:' paragraph on finding 6 and F11 is Medium at position 19; both count. The miss (F13) is not a prominence problem - it is absent.",
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "Detects F13: memory/repository/item.repo.ts and search.repo.ts import types back from ../repository.js, which imports both back - a facade/aggregate cycle",
+        "reason": "This is the one miss that is actively hidden by a clearing statement: the run praises memory/repository.ts as 'a textbook facade-over-aggregate split ... matches reviews/repository.ts exactly' while the aggregates import types back from that facade, which is exactly what reviews/repository/*.repo.ts does NOT do. A keyword grader crediting F13 from the word 'facade' would be wrong here. Worth naming in the key as the canonical near-miss."
+      },
+      {
+        "assertion": "Does NOT flag D5: embedOrNull swallowing embedder failures so memory search degrades to an empty result",
+        "reason": "Confirms the key's D5 carve-out is load-bearing: finding 25 says 'silent bare catch ... make it observable - log at warn' while the good-list clears the degradation itself. Without the explicit 'logging is a legitimate nit' clause this run would score a false positive."
+      }
+    ],
+    "overall": "The longest review of the six (25 findings) and the only one to miss the facade/aggregate cycle. Zero decoys flagged; all five explicitly cleared."
+  }
+}

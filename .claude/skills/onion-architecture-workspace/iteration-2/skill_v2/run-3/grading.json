@@ -1,0 +1,137 @@
+{
+  "eval": "onion-architecture",
+  "run": "skill_v2/run-3",
+  "expectations": [
+    {
+      "text": "Detects F01: digests/routes.ts constructs DigestsRepository itself and calls findByPeriod / deleteById / listRecent, bypassing the service",
+      "passed": true,
+      "evidence": "Finding 7 (High), 'digests/routes.ts:6,28,36-46,52 - route owns data access and business branching': quotes `const repo = new DigestsRepository(app.container.db);` and the findByPeriod/deleteById calls; 'The GET handler (line 52) is the same violation in miniature.'"
+    },
+    {
+      "text": "Detects F02: the digests POST handler branches on domain state (cache hit vs regenerate) and owns the period arithmetic, which belongs in the service",
+      "passed": true,
+      "evidence": "Same finding 7: 'The reuse-vs-rebuild decision, the period-window arithmetic (line 33-34) and the delete-then-rebuild sequence are the module's core policy ... currently cannot be unit-tested without booting Fastify.'"
+    },
+    {
+      "text": "Detects F03: digests/service.ts imports db/schema.js and runs its own Drizzle select() queries although the module already has a repository",
+      "passed": true,
+      "evidence": "Finding 5 (High): quotes the drizzle-orm and db/schema.js imports plus both db.select() calls; 'The module already has a DigestsRepository, and the service still reaches around it into container.db.'"
+    },
+    {
+      "text": "Detects F04: digests/service.ts imports OctokitGitHubClient and constructs it instead of awaiting container.github()",
+      "passed": true,
+      "evidence": "Finding 4 (Critical): quotes the OctokitGitHubClient import and construction; fix is `const github = await this.container.github();`."
+    },
+    {
+      "text": "Detects F05: the GitHub token is read from process.env with an empty-string fallback instead of resolving through SecretsProvider",
+      "passed": true,
+      "evidence": "Same finding 4: 'secrets are supposed to come from ~/.devdigest/secrets.json via SecretsProvider, never env ...; the `?? ''` silently degrades a missing token into unauthenticated GitHub calls.'"
+    },
+    {
+      "text": "Detects F06: digests/service.ts imports memory's repository/search.repo.js directly, reaching past MemoryRepository into another module's data layer",
+      "passed": true,
+      "evidence": "Finding 6 (High): quotes the search.repo.js import; names both the past-the-facade and cross-module data-layer violations."
+    },
+    {
+      "text": "Detects F07: the new module(s) are never added to server/src/modules/index.ts, so the routes 404 as shipped",
+      "passed": true,
+      "evidence": "Finding 8 (High): 'server/src/modules/index.ts - neither new module is registered ... As shipped, neither module's routes are mounted; test/digests-service.test.ts would get a 404 on POST /digests.'"
+    },
+    {
+      "text": "Detects F08: reviewer-core/src/review/summarize.ts reads process.env.OPENROUTER_API_KEY and constructs its own OpenRouterProvider",
+      "passed": true,
+      "evidence": "Finding 2 (Critical): quotes the OpenRouterProvider import, the env read and the construction; 'reviewer-core currently contains zero process.env references anywhere (verified by grep) - this file would be the first.'"
+    },
+    {
+      "text": "Detects F09: summarize.ts imports node:fs/promises and reads skill bodies off disk instead of receiving resolved strings",
+      "passed": true,
+      "evidence": "Finding 3 (Critical): quotes the node:fs/promises import and the readFile loop; 'SummarizeInput.skillPaths ... inverts that contract for no gain.'"
+    },
+    {
+      "text": "Detects F10: summarize.ts returns result.data.findings straight from the model without routing them through groundFindings()",
+      "passed": true,
+      "evidence": "Finding 1 (Critical, first in the review): 'Raw model output is returned as Finding[] with no call to groundFindings().'"
+    },
+    {
+      "text": "Detects F11: the model id (SUMMARY_MODEL) is hardcoded inside the pure engine rather than supplied by the caller",
+      "passed": true,
+      "evidence": "Finding 11 (Low), 'summarize.ts:7 - model id hard-coded in the core': '`const SUMMARY_MODEL = 'anthropic/claude-3.5-haiku';` bakes a provider-specific model string into the engine ... Move it to SummarizeInput.model.'"
+    },
+    {
+      "text": "Detects F12: summarizeReview is never exported from reviewer-core/src/index.ts, so it is unreachable dead code",
+      "passed": true,
+      "evidence": "Finding 13 (Low), 'summarize.ts - not exported from src/index.ts': 'reviewer-core/src/index.ts is the package's public surface ... A new engine pass that consumers are meant to call should be exported there.'"
+    },
+    {
+      "text": "Detects F13: memory/repository/item.repo.ts and search.repo.ts import types back from ../repository.js, which imports both back - a facade/aggregate cycle",
+      "passed": true,
+      "evidence": "Finding 9 (Medium): quotes both `import type { ... } from '../repository.js'` lines and states 'repository.ts:13-14 imports both aggregate files, so the dependency is a cycle between a class and its own parts.'"
+    },
+    {
+      "text": "Detects F14: server/test/digests-service.test.ts drives a real Postgres via startPg() but is named *.test.ts instead of *.it.test.ts",
+      "passed": true,
+      "evidence": "Finding 10 (Medium): 'DB-backed test in the unit lane ... Fix: rename to test/digests.it.test.ts.'"
+    },
+    {
+      "text": "Does NOT flag D1: the service constructor taking the whole Container rather than narrowly-scoped ports",
+      "passed": true,
+      "evidence": "CLEARED EXPLICITLY. 'Checked and clean': 'Whole-Container injection into both services, and row types ... doubling as DTOs - documented, intentional compromises in this repo; deliberately not reported.'"
+    },
+    {
+      "text": "Does NOT flag D2 as a blocking defect: DigestRow ($inferSelect) returned to callers as the response shape",
+      "passed": true,
+      "evidence": "CLEARED EXPLICITLY. Same bullet names 'row types (DigestRow, MemoryRow) doubling as DTOs' as a documented, intentional compromise 'deliberately not reported'."
+    },
+    {
+      "text": "Does NOT flag D3: memory/repository.ts being a thin facade over repository/item.repo.ts and repository/search.repo.ts",
+      "passed": true,
+      "evidence": "CLEARED EXPLICITLY inside finding 9: '(To be explicit: the facade-over-repository/<aggregate>.repo.ts split itself is the documented convention, and the doc comment justifying it on churn grounds ... is exactly the right justification. Not a finding.)'"
+    },
+    {
+      "text": "Does NOT flag D4: reviewer-core/src/llm/openrouter.ts, a concrete adapter importing the openai SDK, living inside the pure reviewer-core package",
+      "passed": true,
+      "evidence": "CLEARED EXPLICITLY. Finding 2: 'llm/openrouter.ts living inside the package is the documented exception *because it is only ever constructed at each consumer's composition root* (container.ts's buildLlm()); constructing it here breaks that guarantee.'"
+    },
+    {
+      "text": "Does NOT flag D5: embedOrNull swallowing embedder failures so memory search degrades to an empty result",
+      "passed": true,
+      "evidence": "NOT FLAGGED, but not named either. embedOrNull is never mentioned. The nearest statement is the 'Checked and clean' bullet clearing memory/{routes,service,helpers,constants}.ts wholesale - 'the service takes Container and resolves the embedder through container.embedder() (a port) ... Aside from finding 9 this module is the shape the skill asks for' - which covers the file but does not name the swallow-and-degrade behaviour. Counted as unmentioned rather than explicitly cleared."
+    }
+  ],
+  "summary": {
+    "passed": 19,
+    "failed": 0,
+    "total": 19,
+    "pass_rate": 1.0
+  },
+  "finding_counts": {
+    "total_findings": 13,
+    "planted_detected": 14,
+    "decoys_flagged": 0,
+    "structural_findings": 13,
+    "decoys_cleared_explicitly": 4,
+    "decoys_unmentioned": 1
+  },
+  "decoy_status": {
+    "D1": "cleared_explicitly",
+    "D2": "cleared_explicitly",
+    "D3": "cleared_explicitly",
+    "D4": "cleared_explicitly",
+    "D5": "unmentioned"
+  },
+  "timing": {
+    "total_tokens": 77106,
+    "duration_ms": 187494,
+    "total_duration_seconds": 187.5,
+    "tool_uses": 16
+  },
+  "prominence_note": "Detection is well distributed: F11 and F12 sit in 'Low / non-blocking' but are numbered findings 11 and 13 with file:line, and F13 is a numbered Medium. Nothing is buried in prose.",
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "reason": "The 'cleared explicitly vs unmentioned' distinction needs a stated granularity rule in the key. This run clears memory/service.ts as a whole file but never names embedOrNull; other runs name the function. I graded a blanket file-level clear as 'unmentioned' for D5 - the key should say which is intended."
+      }
+    ],
+    "overall": "Full recall (14/14) with zero decoys flagged and the shortest finding list of the six - 13 findings, no filler. Four decoys explicitly cleared."
+  }
+}
