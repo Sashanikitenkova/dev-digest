@@ -48,7 +48,8 @@
       "skills": "Skills",
       "evals": "Evals",
       "stats": "Stats",
-      "ci": "CI"
+      "ci": "CI",
+      "context": "Context"
     }
   },
   "config": {
@@ -95,5 +96,11 @@
   },
   "mount": {
     "body": "Mount point for {owner}. The Agent Editor shell + tab routing are wired by A2 — {owner} renders this tab."
+  },
+  "contextTab": {
+    "heading": "Project context to read",
+    "caption": "Repository documents this agent reads on every review, in order. Documents attached to a linked skill are inherited on top of these. Read fresh from the clone each run — nothing is cached and nothing is truncated.",
+    "loadError": "Couldn’t load this agent’s project context",
+    "saveError": "Couldn’t save the change"
   }
 }

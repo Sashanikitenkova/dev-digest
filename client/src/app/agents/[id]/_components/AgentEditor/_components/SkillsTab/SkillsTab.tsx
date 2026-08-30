@@ -8,7 +8,13 @@
    linked-but-off skill, and why this list never hides one.
 
    Reorder → POST /agents/:id/skills (array order IS block order).
-   Checkbox  → PUT  /agents/:id/skills/:skillId. */
+   Checkbox  → PUT  /agents/:id/skills/:skillId.
+
+   A row is NOT draggable at rest — drag is armed by pressing the handle. Same
+   rule, same reason as ContextFilesPicker (see its header): a `draggable`
+   ancestor suppresses the click on its own interactive children the moment a
+   native drag starts, so a checkbox pressed with a pixel of pointer drift did
+   nothing. Keep the two lists in step. */
 "use client";
 
 import React from "react";
@@ -42,6 +48,21 @@ export function SkillsTab({ agent }: { agent: Agent }) {
   const [filter, setFilter] = React.useState("");
   const [dragFrom, setDragFrom] = React.useState<number | null>(null);
   const [dragOver, setDragOver] = React.useState<number | null>(null);
+  const [dragArmed, setDragArmed] = React.useState<number | null>(null);
+
+  // Disarm wherever the gesture ends, not just on the handle — a press that
+  // wanders off before release would leave one row draggable, and that row
+  // would go on swallowing its own clicks.
+  React.useEffect(() => {
+    if (dragArmed === null) return;
+    const clear = () => setDragArmed(null);
+    window.addEventListener("mouseup", clear);
+    window.addEventListener("dragend", clear);
+    return () => {
+      window.removeEventListener("mouseup", clear);
+      window.removeEventListener("dragend", clear);
+    };
+  }, [dragArmed]);
 
   // Filtering hides rows that still occupy prompt-block slots, so there is no
   // honest drop target while a filter is active — reordering is disabled then.
@@ -112,8 +133,14 @@ export function SkillsTab({ agent }: { agent: Agent }) {
             return (
               <div
                 key={row.link.skill_id}
-                draggable={!filtering}
-                onDragStart={() => setDragFrom(i)}
+                draggable={!filtering && dragArmed === i}
+                onDragStart={(e) => {
+                  // Firefox refuses to start a drag whose dragstart sets no
+                  // data, so this is what makes reordering work there at all.
+                  e.dataTransfer.effectAllowed = "move";
+                  e.dataTransfer.setData("text/plain", row.link.skill_id);
+                  setDragFrom(i);
+                }}
                 onDragOver={(e) => {
                   if (filtering || dragFrom === null) return;
                   e.preventDefault();
@@ -124,15 +151,22 @@ export function SkillsTab({ agent }: { agent: Agent }) {
                   if (dragFrom !== null) move(dragFrom, i);
                   setDragFrom(null);
                   setDragOver(null);
+                  setDragArmed(null);
                 }}
                 onDragEnd={() => {
                   setDragFrom(null);
                   setDragOver(null);
+                  setDragArmed(null);
                 }}
                 style={s.row(!row.link.enabled, dragOver === i && dragFrom !== i)}
               >
                 {!filtering && (
-                  <span style={s.handle} aria-hidden="true">
+                  <span
+                    style={s.handle}
+                    aria-hidden="true"
+                    data-testid="drag-handle"
+                    onMouseDown={() => setDragArmed(i)}
+                  >
                     <Icon.Menu size={14} />
                   </span>
                 )}

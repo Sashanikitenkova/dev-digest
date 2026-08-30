@@ -75,5 +75,6 @@ wrong, append a new dated entry that supersedes it instead.
 | Doc | Read when |
 |---|---|
 | [`README.md`](README.md) | you need the architecture diagram or full setup |
+| [`specs/README.md`](specs/README.md) | writing or reading a feature spec — `SPEC-NN` numbering, the `draft` → `approved` → `implemented` lifecycle, and which folder a spec belongs in |
 | [`TESTING.md`](TESTING.md) | touching tests or CI workflows |
 | [`docs/agent-prompts/`](docs/agent-prompts/README.md) | working on agent prompts or model choice |

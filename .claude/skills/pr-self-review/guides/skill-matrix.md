@@ -22,6 +22,8 @@ condition — never once per file.
 | `typescript-expert` | Tech | Full-stack | Heuristic only: generics-heavy changes, `tsconfig.json`/`.d.ts` edits | Not run on every `.ts` file — would be noise; only when type-level complexity is actually introduced. |
 | `security` (local) | Tech | Full-stack | Files touching auth/session/JWT/upload/input-handling | Apply adapted to this stack (Fastify/Postgres) — its own examples are Express/MongoDB-shaped; don't flag Mongo/Express-specific advice verbatim. |
 | `mermaid-diagram` | — | Shared | never | Not review-relevant; excluded from the matrix entirely. |
+| `run-plan` | — | Project | never | Orchestrator, not a reviewer — it *invokes* this gate as its own Phase 6. Listed so the matrix stays complete; never matched against a diff. |
+| `workflow-retro` | — | Project | never | Post-run analyst, not a reviewer — reads session telemetry and never inspects a diff. Listed so the matrix stays complete; must never be auto-invoked. |
 | `engineering-insights` | — | Project | end-of-run only, opportunistic | Only if the review surfaced a genuinely new non-obvious pattern worth recording — this skill never gates the merge. |
 
 ## Shared-contracts special case

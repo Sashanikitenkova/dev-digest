@@ -19,6 +19,7 @@ import { Row, Stat } from "../atoms";
 export function TraceBody({ trace, findings }: { trace: RunTrace; findings: FindingRecord[] }) {
   const t = useTranslations("runs");
   const stats = trace.stats;
+  const missingSpecs = (trace.specs_detail ?? []).filter((d) => d.status === "missing");
   return (
     <>
       <TraceSection icon="Settings" title={t("trace.configuration")}>
@@ -37,15 +38,32 @@ export function TraceBody({ trace, findings }: { trace: RunTrace; findings: Find
             <span>{t("trace.config.items", { count: trace.memory_pulled.length })}</span>
           </Row>
           <Row label={t("trace.config.specsRead")}>
+            {/* Used documents come from `specs_read`; the ones that could NOT be
+                read are rendered alongside with their reason, the way IntentCard
+                shows a missing source rather than hiding it — a review that ran
+                without a rule the author attached is exactly what this row is
+                for. `specs_detail` is absent on every trace persisted before
+                SPEC-01, so it is read defensively. */}
             <div style={s.specsWrap}>
-              {trace.specs_read.length === 0 ? (
+              {trace.specs_read.length === 0 && missingSpecs.length === 0 ? (
                 <span style={s.specsNone}>{t("trace.config.none")}</span>
               ) : (
-                trace.specs_read.map((sp, i) => (
-                  <span key={i} className="mono" style={s.spec}>
-                    {sp}
-                  </span>
-                ))
+                <>
+                  {trace.specs_read.map((sp, i) => (
+                    <span key={`used-${i}`} className="mono" style={s.spec}>
+                      {sp}
+                    </span>
+                  ))}
+                  {missingSpecs.map((sp, i) => (
+                    <span key={`missing-${i}`} className="mono" style={s.specMissing}>
+                      {sp.path}
+                      <span style={s.specReason}>
+                        {" "}
+                        ({sp.reason ?? t("trace.config.specUnavailable")})
+                      </span>
+                    </span>
+                  ))}
+                </>
               )}
             </div>
           </Row>

@@ -12,6 +12,7 @@ import { AppShell } from "../../../../../components/app-shell";
 import { RepoNotFound } from "@/components/repo-not-found";
 import { PrDetailHeader } from "./_components/PrDetailHeader";
 import { OverviewTab } from "./_components/OverviewTab";
+import { focusParams } from "./_components/PrBriefCard";
 import { FindingsTab } from "./_components/FindingsTab";
 import { DiffTab } from "./_components/DiffTab";
 import RunTraceDrawer from "./_components/RunTraceDrawer";
@@ -78,6 +79,12 @@ export default function PRDetailPage() {
   const setTab = (t: string) => router.replace(urlWith({ tab: t, finding: null }));
   // push, not replace: Back should return to the diff line the user came from.
   const goToFinding = (id: string) => router.push(urlWith({ tab: "findings", finding: id }));
+  // Deep link from a brief review-focus row: which file (and line) the diff
+  // should scroll to. push, not replace, so Back returns to the Overview.
+  // ONE urlWith → ONE navigation: `tab`, `file` and `line` cannot be written by
+  // three sequential setParam calls, which would all read the same snapshot.
+  const goToFile = (file: string, line: number | null) =>
+    router.push(urlWith(focusParams("diff", file, line)));
 
   // Reviews come newest-first; each is its own run (grouped into accordions).
   const runs = reviews ?? [];
@@ -85,6 +92,18 @@ export default function PRDetailPage() {
     () => runs.flatMap((r) => r.findings),
     [reviews],
   );
+  const changedFiles = React.useMemo(() => (pr?.files ?? []).map((f) => f.path), [pr?.files]);
+  // The diff jump target, memoized: SmartDiffViewer re-scrolls whenever this
+  // OBJECT changes (that is what re-targets the same line twice), so handing it
+  // a fresh literal on every render would make it scroll on every render.
+  const focusFileParam = search.get("file");
+  const focusLineParam = search.get("line");
+  const jumpTo = React.useMemo(() => {
+    if (!focusFileParam) return null;
+    const parsed = Number(focusLineParam);
+    const line = focusLineParam && Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+    return { file: focusFileParam, line };
+  }, [focusFileParam, focusLineParam]);
   const lethalTrifecta = allFindings.filter((f) => f.kind === "lethal_trifecta");
   const findingsCount = allFindings.length;
 
@@ -153,6 +172,8 @@ export default function PRDetailPage() {
             repoFullName={repoFullName}
             headSha={pr.head_sha}
             prBody={pr.body}
+            changedFiles={changedFiles}
+            onFocusFile={goToFile}
             reviews={runs}
             runs={prRuns}
           />
@@ -190,6 +211,7 @@ export default function PRDetailPage() {
             filesCount={pr.files_count}
             files={pr.files}
             canComment={pr.status === "open"}
+            jumpTo={jumpTo}
             onSelectFinding={goToFinding}
           />
         )}

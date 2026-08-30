@@ -7,7 +7,7 @@ import type {
   UnifiedDiff,
 } from '@devdigest/shared';
 import { Review as ReviewSchema } from '@devdigest/shared';
-import { assemblePrompt, type IntentForPrompt } from '../prompt.js';
+import { assemblePrompt, type IntentForPrompt, type SpecDoc } from '../prompt.js';
 import { groundFindings, groundingSummary } from '../grounding.js';
 import { applyScopeFilter, type ScopeDemotion } from '../scope.js';
 import { reduceReviews, scoreFromFindings, sliceDiff } from './reduce.js';
@@ -57,8 +57,13 @@ export interface ReviewInput {
   skills?: string[];
   /** Curated memory items. */
   memory?: string[];
-  /** Project-context spec chunks (untrusted; delimiter-wrapped downstream). */
-  specs?: string[];
+  /**
+   * Project-context documents attached to the agent + its enabled skills,
+   * resolved by the CALLER (reviewer-core does no I/O — the studio reads them
+   * off the clone, the runner off the filesystem). Untrusted; each is
+   * delimiter-wrapped and labelled with its own path downstream.
+   */
+  specs?: SpecDoc[];
   /**
    * Optional callers-of-changed-symbols digest (T1.3). Untrusted; rendered
    * before the diff section. Empty/undefined → section omitted.

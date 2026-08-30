@@ -26,3 +26,4 @@ test-results/
 
 # pr-self-review skill's local incremental-review cache
 .claude/pr-self-review-state.json
+.claude/runs/

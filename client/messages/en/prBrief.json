@@ -1,0 +1,32 @@
+{
+  "title": "Why & risk",
+  "what": "What this changes",
+  "why": "Why it exists",
+  "risk": {
+    "low": "Low risk",
+    "medium": "Medium risk",
+    "high": "High risk"
+  },
+  "risks": {
+    "title": "Risks",
+    "none": "No risks were raised for this pull request.",
+    "allDropped": "The model raised {proposed, plural, one {# risk} other {# risks}}, but none could be grounded in this pull request's changes."
+  },
+  "focus": {
+    "title": "Review focus",
+    "none": "No reading order could be grounded in this pull request's changes.",
+    "symbolLabel": "symbol",
+    "endpointLabel": "endpoint"
+  },
+  "regenerate": "Regenerate",
+  "stale": "Generated from commit {sha}, which is no longer this pull request's head — regenerate to match the current head.",
+  "staleUnknownSha": "Generated from an earlier commit that was not recorded — regenerate to match the current head.",
+  "empty": {
+    "title": "No brief yet",
+    "body": "Summarize what this pull request changes, why it exists, how risky it is and what to read first. One model call, grounded in the files this PR actually touches.",
+    "cta": "Generate brief"
+  },
+  "error": {
+    "fallback": "Couldn't generate the brief"
+  }
+}

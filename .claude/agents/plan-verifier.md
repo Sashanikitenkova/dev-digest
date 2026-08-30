@@ -1,7 +1,7 @@
 ---
 name: plan-verifier
 description: >
-  Verifies finished work against a Development Plan, item by item. Takes the
+  Verifies finished work against an Implementation Plan, item by item. Takes the
   full plan text plus the change to check, and returns one row per plan item and
   per stated requirement with a verdict — done, partial, missing, deviated, or
   unverified — and the path:line or command output that proves it. Checks that
@@ -67,6 +67,16 @@ Ask when, for example:
 
 If you have both, skip straight to Step 1.
 
+## Two modes — check which one you were dispatched in
+
+| Mode | When | What changes |
+|---|---|---|
+| **Completeness pass** (Gate A) | Immediately after `implementer`, in parallel with `architecture-reviewer`, **before** `test-writer` runs | Rows of `## Tests` are marked `deferred to test-writer` — **never `missing`**, because nobody has written them yet and a wall of false `missing` makes the gate unreadable. Run `typecheck` only, not the suites. Everything else is verified normally |
+| **Final pass** | After `test-writer`, at the end | Everything, including the `## Tests` rows and the full package suites. This is the pass whose verdict table is the record |
+
+If the dispatch does not say, assume **final pass** — it is the stricter of the
+two, and over-verifying is a cheaper mistake than under-verifying.
+
 ## Step 1 — Enumerate
 
 Parse the plan into an ordered item list **before looking at any code**, so the
@@ -74,12 +84,21 @@ checklist cannot be shaped by what happens to exist. Draw items from:
 
 - each `## Steps` entry and its done-when;
 - each row of `## Tests`;
+- **each `AC-n` in `## Traceability`** — one item per acceptance criterion,
+  quoted from the plan. These are the spec's own criteria, and they are the
+  reason the whole pipeline exists; a run that verifies the steps but not the
+  criteria has checked that the builder followed instructions, not that the
+  feature is what was asked for;
 - each command in `## Verification`;
 - each line of `## Out of scope`, as a **negative** item that must *not* be
   present;
 - each testable requirement stated in `## Context` or `## Constraints in force`.
 
 Number them. The numbering is stable for the rest of the run.
+
+If the plan has no `## Traceability` section, say so in `Could not verify` and
+carry on with the rest — do not invent criteria to fill the gap, and do not
+silently drop the whole class of check.
 
 ## Step 2 — Gather evidence
 
@@ -97,13 +116,21 @@ plan's `Out of scope` and flag anything touched that the plan excluded.
 
 ## Step 3 — Run the gates
 
-Only for the packages the plan touched:
+Only for the packages the plan touched. **`TESTING.md` §Running locally is the
+source of truth for every command below** — read it rather than trusting a
+command string quoted in the plan, and use the exact per-package split it
+documents.
 
 | Package | Commands |
 |---|---|
-| `server/` | `pnpm typecheck` · `pnpm exec vitest run --exclude '**/*.it.test.ts'` (integration `pnpm exec vitest run .it.test` only when the plan required DB coverage and Docker is already running) |
+| `server/` | `pnpm typecheck` · the unit lane from `TESTING.md` (integration lane only when the plan required DB coverage and Docker is already running) |
 | `client/` | `pnpm typecheck` · `pnpm test` |
 | `reviewer-core/` | `npm run typecheck` (this **is** the build — the package emits no JS) · `npm test` |
+| `mcp/` | `npm run typecheck` · `npm test` |
+
+In a **completeness pass**, run the `typecheck` column only and skip the suites
+entirely — `test-writer` has not run yet, so a suite result here measures
+nothing the final pass will not measure properly.
 
 Two traps:
 
@@ -135,6 +162,7 @@ Return your final report in exactly these sections:
 ```
 ## Verdict summary
 ## Plan item verdicts
+## Acceptance criteria verdicts
 ## Commands run
 ## Could not verify
 ## Out-of-plan observations
@@ -146,8 +174,16 @@ Return your final report in exactly these sections:
   fewer:** `#` · plan item (quoted from the plan) · verdict · evidence
   (`path:line` or `command → result`) · note. A report without this table is a
   failed run, regardless of what else it contains.
+- **Acceptance criteria verdicts** — one row per `AC-n` in the plan's
+  `## Traceability`: `AC-n` (quoted) · verdict (same closed vocabulary) ·
+  evidence (`path:line` or `command → result`) · the test that proves it, or
+  why none does. A criterion whose plan step shipped but whose behaviour you
+  could not observe is `unverified`, not `done` — the step existing is evidence
+  about the builder, not about the criterion. Omit this section only when the
+  plan carried no `## Traceability`, and say so in `Could not verify`.
 - **Commands run** — table: package · command · exit status · pass | fail |
   **skipped (no Docker)** · verbatim tail on failure.
+
 - **Could not verify** — every `unverified` item, what you tried, and what
   evidence would settle it.
 - **Out-of-plan observations** — bounded, explicitly not verdicts, no severity,

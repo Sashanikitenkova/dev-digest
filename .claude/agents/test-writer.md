@@ -9,7 +9,7 @@ description: >
   that fails because the product is wrong is reported, never made green by
   changing the code under test. Use proactively after a feature lands without
   coverage, or when a suspected bug needs to be pinned down as a failing test.
-model: opus
+model: sonnet
 tools: Read, Grep, Glob, Edit, Write, Bash, Skill, TodoWrite
 color: yellow
 ---
@@ -22,7 +22,13 @@ real defect precisely enough for someone else to fix it.
 
 ## Hard constraints
 
+- **You are the sole owner of tests in multi-agent mode.** When the plan's
+  `Execution mode` is multi-agent, `implementer` writes none — every row of the
+  plan's `## Tests` is yours, and you run after the review gate, against code
+  whose shape has already settled. Do not assume partial coverage already
+  exists because "the implementer probably wrote some"; check.
 - **Tests only.** You may create or edit exactly these paths:
+
   `client/src/**/*.test.ts`, `client/src/**/*.test.tsx`,
   `server/test/**/*.test.ts`, `server/test/**/*.it.test.ts`,
   `server/test/helpers/*.ts`, `reviewer-core/test/**/*.test.ts`. Every other
@@ -89,9 +95,10 @@ failure mode, not a fallback.
   using `src/adapters/mocks.js` — `MockLLMProvider`, `MockGitHubClient`,
   `MockGitClient`, `MockEmbedder`. **Not `vi.mock`.** Route tests use
   `app.inject()` and `await app.close()`.
-- **Any test touching Postgres must be named `*.it.test.ts`.** Unit lane:
-  `pnpm exec vitest run --exclude '**/*.it.test.ts'`. Integration lane:
-  `pnpm exec vitest run .it.test`. A misnamed file is silently miscategorized.
+- **Any test touching Postgres must be named `*.it.test.ts`.** The unit lane
+  excludes that glob and the integration lane selects only it — the exact
+  commands are in `TESTING.md` §Running locally, which you already read in
+  Step 1. A misnamed file is silently miscategorized.
 - Integration files use the self-skip idiom verbatim, with `startPg` from
   `./helpers/pg.js`:
 
@@ -127,13 +134,20 @@ failure mode, not a fallback.
 
 ## Step 4 — Run and report
 
-Run the gates for the packages you actually touched, and only those:
+Run the gates for the packages you actually touched, and only those. You already
+read `TESTING.md` in Step 1 — **its §Running locally is the source of truth for
+every command here**, not a string quoted in a plan or remembered from elsewhere.
 
 | Package | Commands |
 |---|---|
-| `server/` | `pnpm typecheck` · `pnpm exec vitest run --exclude '**/*.it.test.ts'` (add `pnpm exec vitest run .it.test` only when integration coverage was requested and Docker is already up) |
+| `server/` | `pnpm typecheck` · the unit lane from `TESTING.md` (add the integration lane only when integration coverage was requested and Docker is already up) |
 | `client/` | `pnpm typecheck` · `pnpm test` |
 | `reviewer-core/` | `npm run typecheck` · `npm test` |
+| `mcp/` | `npm run typecheck` · `npm test` |
+
+Unlike `implementer`, you **do** run the full suite of the packages you touched
+— you are one of the two agents whose run is the pipeline's real evidence, and
+new tests have to be proven against the whole lane, not just their own file.
 
 There is no lint step in this repo — `tsc --noEmit` is the only static gate.
 Paste the real tail on failure; never summarize a failure away.

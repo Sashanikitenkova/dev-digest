@@ -23,6 +23,12 @@ export const NAV: NavGroup[] = [
     section: "WORKSPACE",
     items: [
       { key: "pulls", label: "Pull Requests", icon: "GitPullRequest", href: "/repos/:repoId/pulls", gKey: "p" },
+      // Project Context sits in WORKSPACE, not SKILLS LAB: the documents are
+      // the repository's own files, shared by every agent and skill, rather
+      // than something authored in the lab.
+      // `gKey: "x"` because p/s/a/c and "," are already taken and "conteXt" is
+      // the only free mnemonic — "d" would read as the bare Dismiss-finding key.
+      { key: "context", label: "Project Context", icon: "FileText", href: "/context", gKey: "x" },
     ],
   },
   {
@@ -67,6 +73,7 @@ export const SHORTCUTS: ShortcutDef[] = [
   { keys: "g s", label: "Go to Skills", group: "Navigation" },
   { keys: "g a", label: "Go to Agents", group: "Navigation" },
   { keys: "g c", label: "Go to Conventions", group: "Navigation" },
+  { keys: "g x", label: "Go to Project Context", group: "Navigation" },
   { keys: "j / k", label: "Next / previous finding", group: "Findings" },
   { keys: "a", label: "Accept finding", group: "Findings" },
   { keys: "d", label: "Dismiss finding", group: "Findings" },

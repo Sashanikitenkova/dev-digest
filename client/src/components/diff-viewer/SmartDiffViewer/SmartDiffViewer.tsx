@@ -25,6 +25,16 @@ export interface SmartDiffViewerProps {
   /** Findings of the latest review round, bucketed by file path. */
   findingsByPath?: Map<string, FindingRecord[]>;
   commenting?: DiffCommentApi;
+  /**
+   * A scroll target supplied from OUTSIDE — the PR page's `?file=&line=`, set by
+   * a brief review-focus row. It seeds the same `jump` state a severity badge
+   * sets, so the group force-open and the FileCard scroll are unchanged.
+   *
+   * Keyed on the OBJECT, not on `file`/`line`, so re-issuing the same target
+   * scrolls again (the nonce is what makes a repeat land). Callers therefore
+   * pass a memoized object — an inline literal would re-scroll on every render.
+   */
+  jumpTo?: { file: string; line: number | null } | null;
   /** Makes the per-line severity tags clickable — the PR page turns this into a
    *  soft navigation to the Findings tab, targeting that finding. */
   onSelectFinding?: (id: string) => void;
@@ -42,6 +52,7 @@ export function SmartDiffViewer({
   files,
   findingsByPath,
   commenting,
+  jumpTo,
   onSelectFinding,
 }: SmartDiffViewerProps) {
   const t = useTranslations("prReview");
@@ -52,6 +63,15 @@ export function SmartDiffViewer({
   const handleJump = React.useCallback((path: string, line: number) => {
     setJump((prev) => ({ path, line, nonce: (prev?.nonce ?? 0) + 1 }));
   }, []);
+
+  // An externally supplied target feeds the SAME state a badge click sets, so
+  // there is exactly one scroll mechanism. A file-only reference targets line 1:
+  // the file card still opens (and its group with it), which is the whole ask.
+  React.useEffect(() => {
+    if (!jumpTo?.file) return;
+    const { file, line } = jumpTo;
+    setJump((prev) => ({ path: file, line: line ?? 1, nonce: (prev?.nonce ?? 0) + 1 }));
+  }, [jumpTo]);
 
   // Render in a fixed order regardless of how the API happened to order groups,
   // so the layout never depends on server iteration order.

@@ -237,6 +237,95 @@ describe("BlastRadiusPanel", () => {
     expect(screen.getByText("GET /health")).toBeInTheDocument();
   });
 
+  it("renders two same-named symbols without a duplicate React key", async () => {
+    // A symbol name is not unique across a repo, and DownstreamImpact carries no
+    // file to disambiguate it. Real case: `renderWithIntl` is a local test helper
+    // defined in ten files here, so a PR touching them produces ten downstream
+    // entries with the same name. Keying on the name alone made React drop nodes.
+    const sameName: PrBlast = {
+      ...DATA,
+      blast: {
+        ...DATA.blast!,
+        changed_symbols: [
+          { name: "renderWithIntl", file: "a/VerdictBanner.test.tsx", kind: "function" },
+          { name: "renderWithIntl", file: "b/FindingCard.test.tsx", kind: "function" },
+        ],
+        downstream: [
+          {
+            symbol: "renderWithIntl",
+            callers: [{ name: "suiteA", file: "a/VerdictBanner.test.tsx", line: 19 }],
+            caller_total: 1,
+            endpoints_affected: [],
+            crons_affected: [],
+          },
+          {
+            symbol: "renderWithIntl",
+            callers: [{ name: "suiteB", file: "b/FindingCard.test.tsx", line: 40 }],
+            caller_total: 1,
+            endpoints_affected: [],
+            crons_affected: [],
+          },
+        ],
+        summary: "2 changed symbols, 2 callers.",
+      },
+    };
+    const errors: unknown[][] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((...args) => {
+      errors.push(args);
+    });
+    get.mockResolvedValue(sameName);
+    renderPanel();
+
+    // Both entries survive: they are different symbols that happen to share a name.
+    expect(await screen.findAllByText("renderWithIntl()")).toHaveLength(2);
+    expect(screen.getByText(/a\/VerdictBanner\.test\.tsx:19/)).toBeInTheDocument();
+    expect(screen.getByText(/b\/FindingCard\.test\.tsx:40/)).toBeInTheDocument();
+
+    // The assertion that would have caught this: React reports a duplicate key as
+    // a console warning, not a throw, so nothing else in this suite would fail.
+    spy.mockRestore();
+    const duplicateKey = errors.find((a) =>
+      a.some((x) => typeof x === "string" && x.includes("same key")),
+    );
+    expect(duplicateKey).toBeUndefined();
+  });
+
+  it("renders repeated endpoint chips without a duplicate React key", async () => {
+    // The same latent bug one level down: one endpoint can be reached by two
+    // changed symbols, and direct and indirect chips share a parent.
+    const repeatedEndpoint: PrBlast = {
+      ...DATA,
+      blast: {
+        ...DATA.blast!,
+        downstream: [
+          {
+            symbol: "rateLimit",
+            callers: [{ name: "handler", file: "src/api/public/index.ts", line: 23 }],
+            caller_total: 1,
+            endpoints_affected: [
+              { endpoint: "GET /api/public/items", depth: 1 },
+              { endpoint: "GET /api/public/items", depth: 2 },
+            ],
+            crons_affected: [{ endpoint: "GET /api/public/items", depth: 1 }],
+          },
+        ],
+        summary: "1 changed symbol.",
+      },
+    };
+    const errors: unknown[][] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((...args) => {
+      errors.push(args);
+    });
+    get.mockResolvedValue(repeatedEndpoint);
+    renderPanel();
+
+    expect(await screen.findAllByText("GET /api/public/items")).not.toHaveLength(0);
+    spy.mockRestore();
+    expect(
+      errors.find((a) => a.some((x) => typeof x === "string" && x.includes("same key"))),
+    ).toBeUndefined();
+  });
+
   it("says nothing is indexed rather than nothing is impacted", async () => {
     // The distinction the panel exists to preserve: an unindexed repo must not
     // read as "this change reaches nothing".

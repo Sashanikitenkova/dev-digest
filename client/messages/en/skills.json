@@ -103,7 +103,8 @@
       "config": "Config",
       "preview": "Preview",
       "stats": "Stats",
-      "versions": "Versions"
+      "versions": "Versions",
+      "context": "Context"
     },
     "createFromScratch": "Create from scratch",
     "configHeading": "Configuration",
@@ -205,5 +206,11 @@
   },
   "tokens": {
     "badge": "~{count} tokens"
+  },
+  "contextTab": {
+    "heading": "Project context to use",
+    "caption": "Repository documents attached to this skill. Any agent using this skill inherits them, so a rule and the document it refers to travel together.",
+    "loadError": "Couldn’t load this skill’s project context",
+    "saveError": "Couldn’t save the change"
   }
 }

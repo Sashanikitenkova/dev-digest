@@ -81,6 +81,50 @@ tables can be empty on a `partial` index. Evidence:
 `server/src/modules/repo-intel/repository.ts:503-540`,
 `server/src/modules/repo-intel/pipeline/full.ts:214`.
 
+### 2026-08-28 — [Mistake] `pnpm typecheck` cannot catch a breaking `reviewer-core` type change that only `server/test/**` consumes
+
+Widening `PromptParts.specs` from `string[]` to `{path, content}[]` typechecked
+clean in ALL THREE packages and still broke the server unit lane at runtime:
+`server/tsconfig.json:28` is `"include": ["src/**/*.ts"]`, so two test fixtures
+passing bare strings were invisible to `tsc` and failed as
+`TypeError: Cannot read properties of undefined (reading 'replaceAll')` inside
+`wrapUntrusted`. This is the server-side twin of the `reviewer-core/INSIGHTS.md`
+2026-08-11 entry, and it EXTENDS the 2026-08-20 shared-contract entry: that one
+is about `vendor/shared` schemas parsed by `contracts.test.ts`; this one is about
+a type crossing the tsconfig path alias, where no `src/` grep finds the breakage
+either. After any `reviewer-core` signature change, grep `server/test/` for the
+changed field and run the unit lane. Evidence: `server/test/prompt-callers.test.ts:20`,
+`server/test/prompt-structured.test.ts:19`, `reviewer-core/src/prompt.ts:124`.
+
+### 2026-08-28 — [Mistake] A transaction does NOT make delete-then-insert safe against a concurrent write of the same owner
+
+`ContextRepository.replace` wrapped `DELETE ... WHERE owner = ?` plus
+`INSERT VALUES (...)` in `db.transaction` and looked correct. It is not: under
+READ COMMITTED two overlapping requests interleave — T2's DELETE evaluates
+against the snapshot from before T1 committed, so it removes nothing, and T2's
+INSERT then collides with the row T1 just wrote, giving
+`duplicate key value violates unique constraint "skill_context_files_skill_id_path_pk"`
+as a bare HTTP 500. Two quick checkbox clicks in the editor were enough. The fix
+is a `FOR UPDATE` on the OWNER row as the transaction's first statement
+(`tx.select({id}).from(t.skills).where(eq(t.skills.id, ownerId)).for('update')`),
+which serializes replaces per owner while leaving different owners parallel.
+Reproduced by two `Promise.all` injects against one owner — that test 500s
+without the lock. **`AgentsRepository.setSkills` has the identical shape and the
+same latent race.** Evidence: `server/src/modules/context/repository.ts`
+(`replace`), `server/test/context.it.test.ts` ("survives two concurrent
+replaces of the SAME skill").
+
+### 2026-08-28 — [Context] Making a write optimistic on the client turns a latent server race into a reproducible one
+
+The duplicate-key race above had existed since the table shipped and never
+fired, because the UI waited for each response before allowing the next click.
+Adding optimistic cache updates made clicking instant, so the author naturally
+ticks four boxes in a row and the PUTs overlap. The client change did not
+introduce the defect; it changed the traffic shape enough to expose it. Worth
+remembering before adding optimistic UI over any endpoint that does
+read-modify-write or delete-then-insert: check the write for concurrency safety
+in the same change. Evidence: `client/src/lib/hooks/context.ts` (`onMutate`),
+`server/src/modules/context/repository.ts` (`replace`).
 
 ## Codebase Patterns
 
@@ -251,6 +295,41 @@ anything reading `file_edges` / `file_rank` / `file_facts`, resync a real repo
 and diff the response by hand before calling it done. Evidence:
 `server/test/repo-intel-importers.it.test.ts` (green throughout both bugs).
 
+### 2026-08-28 — [Context] Nothing on the review path checks out the PR head — project-context reads depend on that
+
+`SimpleGitClient.readFile` reads the clone's WORKING TREE, and no code on the
+review path ever moves it off the default branch: `fetchPullHead` only creates a
+local `pr-<n>` ref (`:72`), `diff()` works from `base...head` refs (`:94`), and
+`sync()` is `reset --hard origin/<branch>` (`:77`). That accident of design is
+now load-bearing: it is what makes attached project-context documents
+trustworthy, because a PR cannot rewrite the rules it is judged by inside its own
+diff. Anyone introducing a `git checkout` of the PR head here must re-pin the
+project-context read to the default branch explicitly, or the guarantee inverts
+silently with no test failing. Evidence: `server/src/adapters/git/simple-git.ts:72-88`,
+`server/src/modules/reviews/run-executor.ts` (`buildSpecDocs` docblock).
+
+### 2026-08-28 — [Context] `trace-builder.ts` is NOT on the studio review path
+
+`buildRunTrace` / `BuildTraceInput` (`server/src/platform/trace-builder.ts:51`)
+exist for the A5 / CI-runner path. `ReviewRunExecutor` never calls them — it
+hand-builds its `RunTrace` object literals, twice: once on success
+(`run-executor.ts:325`) and once on the failure path (`:685`). A trace field
+added only to `BuildTraceInput` therefore never appears in a studio run's trace,
+and a field added to only ONE of the two literals silently vanishes from failed
+runs. Any new trace field is a three-place edit. Evidence:
+`server/src/platform/trace-builder.ts:45`, `server/src/modules/reviews/run-executor.ts:370`, `:695`.
+
+### 2026-08-28 — [Context] The configured context roots gate DISCOVERY only, not attachment or preview
+
+`DEVDIGEST_CONTEXT_ROOTS` decides which directories the discovery walk descends
+into, and `documentType` uses the same list — but neither `readDocument`
+(`service.ts:104`) nor `setAttachments` (`:156`) checks it. Both gate on
+`safeContextPath`, which enforces clone containment and a `.md` extension and
+nothing more. So any `.md` inside the clone can be previewed or attached by path
+even though the listing never offers it, and such an attachment renders with a
+null type. This is not a privilege boundary — the caller already owns the repo —
+but do not read the roots as a security control. Evidence:
+`server/src/modules/context/service.ts:43-58`, `:104`, `:156`.
 
 ## Tool & Library Notes
 
@@ -286,7 +365,55 @@ Worth knowing because the failure is at execution time, not typecheck time:
 `tsc` is perfectly happy with the `Date`. Evidence:
 `server/src/modules/reviews/repository/skill-stats.repo.ts`.
 
+### 2026-08-22 — [Context] `MockLLMProvider` cannot be constructed as `'openrouter'` — inject it by KEY instead
+
+Following the 2026-08-11 rule above ("inject EVERY provider the path can
+reach") runs straight into a wall: `MockLLMProvider`'s constructor accepts only
+`'openai' | 'anthropic'` (`src/adapters/mocks.ts:62-63`), so
+`new MockLLMProvider('openrouter')` does not compile — even though
+`LLMProvider.id` includes it and `container.llm('openrouter')` is a real path.
+
+Do not widen the shared mock for this. `Container.llm(id)` resolves an override
+by KEY and never inspects `provider.id`:
+
+    const injected = this.overrides.llm?.[id];
+    if (injected) return injected;
+
+So the `openrouter` slot takes an openai-flavoured mock and everything works —
+the id field is only ever read by code that builds a real provider. Keeping the
+fix at the call site is what holds the blast radius of a test-only change to
+the test file.
+
+Useful corollary for asserting a route makes NO model call: `MockLLMProvider`
+records every invocation in a public `calls` array, so `expect(mock.calls)
+.toEqual([])` is the assertion, and runtime is the cross-check — per the
+2026-08-11 entry, a leak to the real network shows up as seconds, not as a
+failed expectation. Evidence: `server/src/platform/container.ts:171`,
+`server/test/smart-diff.it.test.ts`.
+
 ## Recurring Errors & Fixes
+
+### 2026-08-28 — [Pitfall] The global rate limit is sized for the internet, but the caller is one browser tab
+
+`app.ts` registered `@fastify/rate-limit` at a flat `max: 120` per minute. That
+budget is PER IP and the entire studio is a single localhost IP driven by one
+person, so it is really a cap on the app's own UI. The client's pollers
+(repo-intel status every 1.5 s while indexing, the two runs pollers every 4 s
+during a review) spend ~70/min before anyone clicks anything, and ordinary
+editing then got `429`. Now `DEVDIGEST_RATE_LIMIT_MAX` (default 600) — but the
+durable lesson is that a per-IP limit in a local-first single-user tool has to
+be budgeted against the UI's own background traffic, not against an imagined
+attacker.
+
+Second half of the same bug: the error handler had no branch for Fastify-native
+errors, so a 429 fell through the generic tail and was logged at `error` as if
+the server had broken and returned as `code: 'internal_error'`, with the retry
+delay available only as prose inside the message. The limiter has already set
+`retry-after` on the reply by the time the handler runs, so read it there and
+return it as a number — `Math.ceil(ttl / 1000)`, i.e. SECONDS, not ms
+(`@fastify/rate-limit` 11.0.0, index.js:257). Note the limiter is disabled under
+`NODE_ENV=test`, so a test for this has to build the app as `development`.
+Evidence: `server/src/app.ts`, `server/test/routes-smoke.test.ts`.
 
 ### 2026-06-27 — [Context] Re-seeding won't refresh PR-level demo data if the PR row already exists
 
@@ -384,6 +511,59 @@ not merely strict: one kept 2 of 7, another kept 10 of 10. The route returns
 `{proposed, kept, dropped}` so a run where the model invented everything cannot
 render as a successful empty scan. Evidence:
 `server/src/modules/conventions/helpers.ts`, `test/conventions-grounding.test.ts`.
+
+### 2026-08-29 — [Pitfall] Reasoning tokens come out of `max_tokens`, so a completion cap sized for the answer returns NOTHING
+
+The PR brief shipped with `BRIEF_MAX_COMPLETION_TOKENS = 1_200`, chosen as "the
+size of a brief". Every generation failed in the studio with a 502 reading
+*"Check the provider is reachable and the model supports structured outputs"* —
+and the provider was reachable, and the model does support them.
+
+On a reasoning model the reasoning tokens are drawn from the same `max_tokens`
+budget, **before** any content. Measured live against
+`openrouter/deepseek-v4-pro` with the feature's real schema and a 40-file
+prompt:
+
+| `max_tokens` | `finish_reason` | reasoning | outcome |
+|---|---|---|---|
+| 1 200 | `length` | 1 200 / 1 200 | empty content, failed 3/3 |
+| 4 000 | `stop` | 0 | parsed, $0.0052 |
+
+`deepseek-v4-flash` behaves the same (1 200 fails 3/3; at 4 000 it spends 1 430
+reasoning of 2 938 total). OpenRouter's `reasoning: {exclude: true}` only HIDES
+the tokens — it still burned 929 and still failed — and `reasoning: {effort:
+'low'}` merely reduces them to 511, which is still not enough room for the
+answer.
+
+Three things make this hard to see:
+
+1. **It never looks like truncation.** Empty content goes into
+   `parseWithRepair`, fails, gets reprompted `maxRetries` times, and finally
+   throws *"failed schema validation"* — so it reads as "this model can't do
+   structured output", pointing at the provider instead of at our own cap.
+2. **Every mocked test passes straight through it.** `MockLLMProvider` returns
+   a fixture and consumes no tokens, so none of the 88 tests written for this
+   feature — unit, integration against real Postgres, or client — could observe
+   a completion cap being exhausted. The one check that catches it is a real
+   call.
+3. **Each failed attempt still costs money.** Three retries × a full cap of
+   reasoning tokens, with nothing to show.
+
+`reviewer-core/src/llm/openrouter.ts` now reports `finish_reason`, whether the
+content was empty, the reasoning-token count and `max_tokens` when it gives up,
+and names the cap when `finish_reason` is `length` — our own diagnosis, carrying
+no provider response body, so a caller forbidden from echoing one can still
+surface it. Evidence: `server/src/modules/brief/constants.ts`,
+`reviewer-core/src/llm/openrouter.ts`, `reviewer-core/test/openrouter-structured.test.ts`,
+`server/test/brief-budget.test.ts`.
+
+**This likely explains the 2026-07-20 open question below** about a review
+taking 13m40s with skill blocks added and 55s without, on
+`openrouter/deepseek-v4-flash` — now known to be a reasoning model. A bigger
+structured-output prompt means more reasoning; if a response gets truncated
+mid-reasoning the repair loop reprompts with an even longer message and reasons
+again. Worth re-timing that case with the reasoning-token counter now that we
+log it.
 
 ## Open Questions
 

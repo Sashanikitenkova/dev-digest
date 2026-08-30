@@ -32,3 +32,25 @@ export const skillVersions = pgTable(
   },
   (t) => ({ pk: primaryKey({ columns: [t.skillId, t.version] }) }),
 );
+
+/**
+ * Project-context documents attached to a SKILL (SPEC-01). Any agent linking
+ * the skill inherits them, which is what makes a document travel with the rule
+ * that references it.
+ *
+ * Structurally identical to `agentContextFiles`; the two are separate tables so
+ * each can carry its own FK cascade. It lives in this file rather than in
+ * `db/schema/context.ts` because that module imports only `workspaces`/`repos`
+ * and referencing `skills` from it would create an import cycle.
+ */
+export const skillContextFiles = pgTable(
+  'skill_context_files',
+  {
+    skillId: uuid('skill_id')
+      .notNull()
+      .references(() => skills.id, { onDelete: 'cascade' }),
+    path: text('path').notNull(),
+    order: integer('order').notNull().default(0),
+  },
+  (t) => ({ pk: primaryKey({ columns: [t.skillId, t.path] }) }),
+);

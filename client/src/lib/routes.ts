@@ -13,6 +13,7 @@ export const routes = {
   skills: () => "/skills",
   skill: (id: string) => `/skills/${id}`,
   conventions: () => "/conventions",
+  context: () => "/context",
 } as const;
 
 /**

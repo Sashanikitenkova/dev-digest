@@ -208,7 +208,16 @@ export const SmartDiff = z.object({
 });
 export type SmartDiff = z.infer<typeof SmartDiff>;
 
-// ---- Composed PR Brief (pr_brief.json) ----
+// ---- Composed PR Brief (read-model) ----
+/**
+ * `PrBrief` composes the four building blocks above — Intent, BlastRadius,
+ * Risks and PrHistory — into one per-PR read-model.
+ *
+ * It is NOT the payload of `pr_brief.json`, despite what this comment used to
+ * claim: that column holds `PrRiskBriefRecord` (`contracts/risk-brief.ts`),
+ * the generated "what / why / how risky / read this first" brief. `PrBrief`
+ * keeps its name and shape for its existing consumers.
+ */
 export const PrBrief = z.object({
   intent: Intent,
   blast: BlastRadius,

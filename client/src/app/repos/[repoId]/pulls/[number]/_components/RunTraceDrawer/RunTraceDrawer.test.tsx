@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import type { RunTrace } from "@devdigest/shared";
@@ -19,8 +19,12 @@ const TRACE: RunTrace = {
   ],
 };
 
+// `useRunTrace` is a vi.fn() (default returns TRACE) so later describe blocks
+// can swap in a different fixture — the ORIGINAL smoke tests below still get
+// the same TRACE they always did.
+const useRunTrace = vi.fn();
 vi.mock("../../../../../../../lib/hooks/trace", () => ({
-  useRunTrace: () => ({ data: TRACE, isLoading: false }),
+  useRunTrace: (...args: unknown[]) => useRunTrace(...args),
 }));
 vi.mock("../../../../../../../lib/hooks/reviews", () => ({
   useRunEvents: () => ({ events: [], running: false }),
@@ -28,7 +32,13 @@ vi.mock("../../../../../../../lib/hooks/reviews", () => ({
 
 import RunTraceDrawer from "./RunTraceDrawer";
 
-afterEach(cleanup);
+beforeEach(() => {
+  useRunTrace.mockReturnValue({ data: TRACE, isLoading: false });
+});
+afterEach(() => {
+  cleanup();
+  useRunTrace.mockReset();
+});
 
 function renderWithIntl(ui: React.ReactElement) {
   return render(
@@ -53,5 +63,50 @@ describe("A5 Run Trace drawer (smoke)", () => {
     fireEvent.click(screen.getByText("log"));
     // LiveLogStream renders its filter input
     expect(screen.getByPlaceholderText("Filter log…")).toBeInTheDocument();
+  });
+});
+
+describe("A5 Run Trace drawer — Specs read (SPEC-01, AC-23/AC-25)", () => {
+  const TRACE_WITH_SPECS: RunTrace = {
+    ...TRACE,
+    specs_read: ["docs/architecture.md"],
+    specs_detail: [
+      { path: "docs/architecture.md", status: "used", reason: null, tokens: 42 },
+      { path: "docs/vanished.md", status: "missing", reason: "not_in_clone", tokens: 0 },
+    ],
+    specs_tokens: 42,
+  };
+
+  it("renders the used documents' paths, derived from the ledger", () => {
+    useRunTrace.mockReturnValue({ data: TRACE_WITH_SPECS, isLoading: false });
+    renderWithIntl(<RunTraceDrawer runId="r1" agentName="Security" prNumber={482} onClose={() => {}} />);
+    expect(screen.getByText("docs/architecture.md")).toBeInTheDocument();
+  });
+
+  it("renders a missing document WITH its reason inline, never hidden", () => {
+    useRunTrace.mockReturnValue({ data: TRACE_WITH_SPECS, isLoading: false });
+    renderWithIntl(<RunTraceDrawer runId="r1" agentName="Security" prNumber={482} onClose={() => {}} />);
+    expect(screen.getByText("docs/vanished.md")).toBeInTheDocument();
+    expect(screen.getByText(/not_in_clone/)).toBeInTheDocument();
+  });
+
+  it("renders 'none' when there is no used document and no missing one", () => {
+    useRunTrace.mockReturnValue({
+      data: { ...TRACE, specs_read: [], specs_detail: [], specs_tokens: 0 },
+      isLoading: false,
+    });
+    renderWithIntl(<RunTraceDrawer runId="r1" agentName="Security" prNumber={482} onClose={() => {}} />);
+    expect(screen.getByText("none")).toBeInTheDocument();
+  });
+
+  it("still renders without throwing when specs_detail is absent (a trace persisted before SPEC-01)", () => {
+    // TRACE itself has no specs_detail/specs_tokens key at all — the drawer's
+    // default fixture — so this pins that a historical trace document (frozen
+    // jsonb, never re-derived) does not crash the drawer.
+    useRunTrace.mockReturnValue({ data: TRACE, isLoading: false });
+    expect(() =>
+      renderWithIntl(<RunTraceDrawer runId="r1" agentName="Security" prNumber={482} onClose={() => {}} />),
+    ).not.toThrow();
+    expect(screen.getByText("none")).toBeInTheDocument();
   });
 });

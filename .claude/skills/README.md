@@ -6,8 +6,10 @@ Reusable AI skills that provide specialized knowledge and workflows. Canonical l
 
 | Skill | Scope | Description |
 |-------|-------|-------------|
+| [run-plan](run-plan/SKILL.md) | Project | `/run-plan` — executes an approved Implementation Plan through the agent pipeline: implementer, a parallel architecture-reviewer + plan-verifier gate, a capped remediation loop, tests, final verification, merge gate, docs |
 | [pr-self-review](pr-self-review/SKILL.md) | QA | Pre-merge review gate: classifies changed files, runs the applicable QA/architecture/tech skills, normalizes findings to Critical/High/Medium/Low, blocks merge on any confirmed Critical |
 | [engineering-insights](engineering-insights/SKILL.md) | Project | Capture non-obvious decisions, gotchas, and fixes into the right package's `INSIGHTS.md`, as-you-go and at wrap-up |
+| [workflow-retro](workflow-retro/SKILL.md) | Project | `/workflow-retro` — post-run retrospective on a multi-agent session: token spend, agent roster and launch order, duplicated work, and proposals; appends durable insights to `docs/retro/ledger.md` |
 | [fastify-best-practices](fastify-best-practices/SKILL.md) | Backend | Fastify routes, plugins, JSON-schema validation, error handling |
 | [drizzle-orm-patterns](drizzle-orm-patterns/SKILL.md) | Backend | Drizzle schema, queries, relations, transactions, migrations |
 | [postgresql-table-design](postgresql-table-design/SKILL.md) | Backend | Postgres schema design, data types, indexing, constraints |

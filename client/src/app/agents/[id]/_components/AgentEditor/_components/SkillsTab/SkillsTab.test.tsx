@@ -138,6 +138,24 @@ describe("Agent editor — Skills tab", () => {
     expect(screen.getByText("2 of 3 enabled")).toBeInTheDocument();
   });
 
+  /* Same contract as ContextFilesPicker: a `draggable` row suppresses the
+     click on its own checkbox the moment the browser starts a native drag, so
+     a press with a pixel of drift toggled nothing. Drag is armed by the handle
+     instead, and no row is draggable at rest. jsdom cannot simulate the native
+     drag, so the DOM contract is what gets pinned. */
+  it("makes a row draggable only while its handle is held", () => {
+    const { container } = renderTab();
+    const row = () => container.querySelector("[draggable]");
+
+    expect(row()?.getAttribute("draggable")).toBe("false");
+
+    fireEvent.mouseDown(screen.getAllByTestId("drag-handle")[0]!);
+    expect(row()?.getAttribute("draggable")).toBe("true");
+
+    fireEvent.mouseUp(window);
+    expect(row()?.getAttribute("draggable")).toBe("false");
+  });
+
   it("shows the no-match note when the filter matches nothing", () => {
     renderTab();
     fireEvent.change(screen.getByLabelText("Filter skills…"), { target: { value: "zzz" } });

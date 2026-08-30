@@ -47,6 +47,47 @@ scope would reintroduce exactly the failure mode this design avoids. It also
 demotes rather than deletes: `output.length === input.length` always holds.
 Evidence: `reviewer-core/src/scope.ts:129`, `reviewer-core/test/scope.test.ts`.
 
+### 2026-08-22 — [Decision] The output-language rule lives in `assemblePrompt`, not in the seeded prompt bodies
+
+The five reviewer prompts in `server/src/db/seed-prompts.ts` never stated an
+output language, so a PR whose title, description or comments are non-English
+could come back with non-English `summary` / `title` / `rationale` /
+`suggestion` — rendered verbatim into a UI that ships `en` only. This is the
+same bug the intent classifier already hit (`server/INSIGHTS.md`, 2026-08-12:
+it answered in Chinese), and it was fixed the same way: in the prompt, so it
+survives a model swap.
+
+It went into `OUTPUT_LANGUAGE` beside `INJECTION_GUARD` rather than into the
+seeded bodies, for the reason `formatSkillBlocks` and `applyScopeFilter` live
+here: `assemblePrompt` is the single derivation point for every agent's system
+message, on both the studio and the CI-runner path. Three consequences that a
+per-prompt fix does not buy — it covers **user-created** agents, not just the
+five seeded ones; it does not depend on a DB row, which
+`seed-prompts.ts:7-9` notes is the runtime source of truth and only refreshed
+on a fresh seed; and it cannot drift between the two callers.
+
+Watch the two couplings: `PromptAssembly.system` is persisted into
+`run_traces`, so the Run Trace drawer shows the added paragraph on new runs
+(old traces are unchanged); and `prompt.ts` builds `system` with a template
+literal, so a stray backtick in the rule text is a build error — hence the
+string-concat form. Evidence: `reviewer-core/src/prompt.ts:30`,
+`reviewer-core/test/prompt.test.ts`.
+
+### 2026-08-28 — [Decision] The `specs` prompt slot carries `{path, content}`, not bare strings, so a finding can cite the document
+
+`assemblePrompt` originally labelled project-context blocks POSITIONALLY
+(`spec-0`, `spec-1`), which meant the document's identity never reached the
+model: it could be told a rule but could not name the file the rule came from,
+so "this violates `docs/api-contracts.md`" was unreachable by construction.
+`PromptParts.specs` / `ReviewInput.specs` are now `SpecDoc[]`, and
+`formatSpecBlocks` emits `### <path>` plus `wrapUntrusted('spec:<path>', body)` —
+the path appears twice, as a visible heading and as the delimiter label. It lives
+here rather than in the server for the same reason as `formatSkillBlocks`
+(2026-07-19): the studio and the CI runner must not diverge on a trust boundary.
+This was a BREAKING type change with no deprecation window, which was acceptable
+only because the package publishes no artifact and its single in-repo caller did
+not pass `specs` at all. Evidence: `reviewer-core/src/prompt.ts:95`, `:124`, `:190`.
+
 ## Tool & Library Notes
 
 ### 2026-08-11 — [Context] `npm run typecheck` does NOT typecheck the tests

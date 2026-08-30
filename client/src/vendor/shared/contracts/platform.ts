@@ -59,8 +59,8 @@ export const FEATURE_MODELS: FeatureModelDef[] = [
     id: 'risk_brief',
     label: 'Risk Brief',
     description: 'Assesses merge risks for a pull request.',
-    defaultProvider: 'openai',
-    defaultModel: 'gpt-4.1',
+    defaultProvider: 'openrouter',
+    defaultModel: 'deepseek/deepseek-v4-pro',
   },
   {
     id: 'conformance',
@@ -246,14 +246,99 @@ export const PrCommentInput = z.object({
 });
 export type PrCommentInput = z.infer<typeof PrCommentInput>;
 
-// ---- Project Context ----
+// ---- Project Context (SPEC-01) ----
+
+/**
+ * One repository document discovered under a configured context root.
+ *
+ * Deliberately carries NO `content`: the listing is a live walk over the clone
+ * and a workspace with a hundred documents would otherwise ship every byte of
+ * them to render a checkbox list. Content is fetched one document at a time via
+ * `SpecFileContent`.
+ */
 export const SpecFile = z.object({
+  /** Repo-relative path, e.g. `docs/architecture.md`. Also the identity — there
+      is no id, because the file on disk IS the record. */
   path: z.string(),
-  content: z.string().nullish(),
-  size: z.number().int().nullish(),
-  updated_at: z.string().nullish(),
+  /** The configured root this document was found under (`specs`, `docs`, …).
+      First matching path segment wins, so a document has exactly one type. */
+  type: z.string(),
+  bytes: z.number().int(),
+  /** Approximate tokens (`ceil(chars/4)`) — the same formula the server uses at
+      review time, so the picker's estimate and the trace's total agree. */
+  tokens: z.number().int(),
+  /** How many agents attach this document DIRECTLY. Skill-inherited attachments
+      are deliberately not counted; the number answers "who chose this file". */
+  used_by_agents: z.number().int(),
 });
 export type SpecFile = z.infer<typeof SpecFile>;
+
+/** One document's body, fetched on demand for the read-only preview. */
+export const SpecFileContent = z.object({
+  path: z.string(),
+  content: z.string(),
+  bytes: z.number().int(),
+  tokens: z.number().int(),
+});
+export type SpecFileContent = z.infer<typeof SpecFileContent>;
+
+/**
+ * The result of a live discovery walk over a repo's clone.
+ *
+ * `cloned: false` is a first-class state, not an error: a repo added but never
+ * cloned has no documents to discover, and that is a different fact from "the
+ * roots are empty". The UI renders them differently.
+ */
+export const ContextListing = z.object({
+  cloned: z.boolean(),
+  /** The configured roots that were walked (DEVDIGEST_CONTEXT_ROOTS). Surfaced
+      so the empty state can name them instead of hardcoding a path. */
+  roots: z.array(z.string()),
+  files: z.array(SpecFile),
+  total_tokens: z.number().int(),
+});
+export type ContextListing = z.infer<typeof ContextListing>;
+
+/** Body for PUT /agents/:id/context and PUT /skills/:id/context. Array position
+    IS attachment order; there is no client-supplied `order` field, matching the
+    contract `POST /agents/:id/skills` already uses. */
+export const ContextAttachmentInput = z.object({
+  paths: z.array(z.string()),
+});
+export type ContextAttachmentInput = z.infer<typeof ContextAttachmentInput>;
+
+/**
+ * What an owner's attachments become in the prompt — the studio's
+ * `SERIALIZES AS` panel.
+ *
+ * `block` is rendered by reviewer-core's own `formatSpecSection`, with each
+ * document BODY replaced by a short placeholder. The headings, the order and
+ * the `<untrusted source="spec:<path>">` delimiters are therefore the real
+ * ones; only the content is elided, because the panel exists to show an author
+ * the SHAPE of what they built, not to ship 10k tokens of markdown into an
+ * editor on every keystroke.
+ *
+ * `documents` is the ledger, including attachments that could not be read —
+ * they are absent from `block` (an unreadable document reaches no model) but
+ * must stay visible, or a rule the author believes is in force disappears
+ * silently.
+ */
+export const ContextSerializedDoc = z.object({
+  path: z.string(),
+  tokens: z.number().int(),
+  status: z.enum(['used', 'missing']),
+  /** Why it could not be read: `not_in_clone` | `empty_file`. */
+  reason: z.string().nullish(),
+});
+export type ContextSerializedDoc = z.infer<typeof ContextSerializedDoc>;
+
+export const ContextSerializationPreview = z.object({
+  /** Empty string when nothing could be read — never a bare heading. */
+  block: z.string(),
+  documents: z.array(ContextSerializedDoc),
+  total_tokens: z.number().int(),
+});
+export type ContextSerializationPreview = z.infer<typeof ContextSerializationPreview>;
 
 export const IndexStatus = z.object({
   status: z.enum(['idle', 'cloning', 'parsing', 'embedding', 'done', 'error']),
