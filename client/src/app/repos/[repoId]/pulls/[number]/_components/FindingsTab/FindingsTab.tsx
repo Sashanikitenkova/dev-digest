@@ -1,10 +1,12 @@
 "use client";
 
-import React, { useCallback } from "react";
+import React, { useCallback, useMemo } from "react";
 import { Icon, Badge, Button, SectionLabel, EmptyState } from "@devdigest/ui";
 import { RunStatus } from "../RunStatus";
 import { RunHistory } from "../RunHistory/RunHistory";
 import { ReviewRunAccordion } from "../ReviewRunAccordion";
+import { SeverityFilterBar } from "../SeverityFilterBar/SeverityFilterBar";
+import { countBySeverity } from "./helpers";
 import { s } from "./styles";
 import type { FindingRecord, ReviewRecord, RunSummary, PrCommit } from "@devdigest/shared";
 import type { UseMutationResult } from "@tanstack/react-query";
@@ -14,6 +16,8 @@ interface FindingsTabProps {
   liveRunIds: string[];
   reviewRunning: boolean;
   lethalTrifecta: FindingRecord[];
+  /** ?finding=<id> — the run holding it opens, and its card expands + scrolls. */
+  targetFindingId?: string | null;
   runs: ReviewRecord[];
   prRuns: RunSummary[] | undefined;
   prCommits: PrCommit[];
@@ -31,6 +35,7 @@ export function FindingsTab({
   liveRunIds,
   reviewRunning,
   lethalTrifecta,
+  targetFindingId,
   runs,
   prRuns,
   prCommits,
@@ -62,6 +67,10 @@ export function FindingsTab({
     },
     [onDelete],
   );
+
+  const [sevFilter, setSevFilter] = React.useState<string | null>(null);
+
+  const severityCounts = useMemo(() => countBySeverity(runs), [runs]);
 
   // Timeline → Review-runs navigation: clicking an agent name in the timeline
   // opens + scrolls to that run's accordion below. The nonce re-triggers the
@@ -144,6 +153,13 @@ export function FindingsTab({
       >
         Review runs
       </SectionLabel>
+      {runs.length > 0 && (
+        <SeverityFilterBar
+          counts={severityCounts}
+          active={sevFilter}
+          onToggle={setSevFilter}
+        />
+      )}
       {runs.length === 0 ? (
         reviewRunning || liveRunIds.length > 0 ? null : (
           <EmptyState
@@ -164,6 +180,8 @@ export function FindingsTab({
             headSha={headSha}
             targetRunId={target?.runId ?? null}
             targetNonce={target?.n ?? 0}
+            targetFindingId={targetFindingId}
+            severityFilter={sevFilter}
           />
         ))
       )}

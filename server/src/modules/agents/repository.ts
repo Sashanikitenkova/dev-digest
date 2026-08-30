@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, countDistinct, desc, eq } from 'drizzle-orm';
 import type { Db } from '../../db/client.js';
 import * as t from '../../db/schema.js';
 import type { CiFailOn, Provider, ReviewStrategy } from '@devdigest/shared';
@@ -46,6 +46,12 @@ export interface UpdateAgent {
 export interface LinkedSkillRow {
   skill: typeof t.skills.$inferSelect;
   order: number;
+  /**
+   * The LINK's switch (`agent_skills.enabled`), not the skill's own `enabled`.
+   * A review injects a prompt block only when BOTH are true; the link keeps its
+   * `order` while disabled so re-enabling restores its position.
+   */
+  enabled: boolean;
 }
 
 export class AgentsRepository {
@@ -191,17 +197,91 @@ export class AgentsRepository {
   /** Skills linked to an agent, in `order` ascending. */
   async linkedSkills(agentId: string): Promise<LinkedSkillRow[]> {
     const rows = await this.db
-      .select({ skill: t.skills, order: t.agentSkills.order })
+      .select({
+        skill: t.skills,
+        order: t.agentSkills.order,
+        enabled: t.agentSkills.enabled,
+      })
       .from(t.agentSkills)
       .innerJoin(t.skills, eq(t.agentSkills.skillId, t.skills.id))
       .where(eq(t.agentSkills.agentId, agentId))
       .orderBy(asc(t.agentSkills.order));
-    return rows.map((r) => ({ skill: r.skill, order: r.order }));
+    return rows.map((r) => ({ skill: r.skill, order: r.order, enabled: r.enabled }));
   }
 
   async skillIdsForAgent(agentId: string): Promise<string[]> {
     const links = await this.linkedSkills(agentId);
     return links.map((l) => l.skill.id);
+  }
+
+  /**
+   * Agents linking one skill, each with that link's own switch. Ordered by name
+   * so the Stats tab's "agents using this skill" list is stable across reloads.
+   *
+   * Deliberately does NOT filter on `skills.enabled`. The caller is the skill's
+   * own page, where that switch is already on screen as the card toggle —
+   * emptying the list whenever the skill is off would read as "nobody uses
+   * this", which is a different and wrong statement.
+   */
+  async agentsUsingSkill(
+    workspaceId: string,
+    skillId: string,
+  ): Promise<{ id: string; name: string; linkEnabled: boolean }[]> {
+    return this.db
+      .select({ id: t.agents.id, name: t.agents.name, linkEnabled: t.agentSkills.enabled })
+      .from(t.agentSkills)
+      .innerJoin(t.agents, eq(t.agentSkills.agentId, t.agents.id))
+      .where(and(eq(t.agentSkills.skillId, skillId), eq(t.agents.workspaceId, workspaceId)))
+      .orderBy(asc(t.agents.name));
+  }
+
+  /**
+   * Every skill→agent link in the workspace, flat, in ONE query. The batch
+   * counterpart of `agentsUsingSkill`, for the skills-list stats endpoint —
+   * grouping happens in the service so a workspace with N skills still costs
+   * one round-trip instead of N.
+   */
+  async skillAgentLinks(
+    workspaceId: string,
+  ): Promise<{ skillId: string; agentId: string; linkEnabled: boolean }[]> {
+    return this.db
+      .select({
+        skillId: t.agentSkills.skillId,
+        agentId: t.agentSkills.agentId,
+        linkEnabled: t.agentSkills.enabled,
+      })
+      .from(t.agentSkills)
+      .innerJoin(t.agents, eq(t.agentSkills.agentId, t.agents.id))
+      .where(eq(t.agents.workspaceId, workspaceId));
+  }
+
+  /**
+   * Per-agent count of skills that actually contribute a prompt block — BOTH
+   * `agent_skills.enabled` and `skills.enabled` true. Stricter than the skill
+   * side's `used_by_agents` on purpose (see the `Agent.skills_count` docblock).
+   *
+   * Grouped in SQL rather than per agent: the agents list renders this badge
+   * for every card, and a per-agent query would be a textbook N+1. Agents with
+   * no enabled skills are simply absent from the map — callers default to 0.
+   */
+  async countEnabledSkillsByAgent(workspaceId: string): Promise<Map<string, number>> {
+    const rows = await this.db
+      .select({
+        agentId: t.agentSkills.agentId,
+        total: countDistinct(t.agentSkills.skillId),
+      })
+      .from(t.agentSkills)
+      .innerJoin(t.agents, eq(t.agentSkills.agentId, t.agents.id))
+      .innerJoin(t.skills, eq(t.agentSkills.skillId, t.skills.id))
+      .where(
+        and(
+          eq(t.agents.workspaceId, workspaceId),
+          eq(t.agentSkills.enabled, true),
+          eq(t.skills.enabled, true),
+        ),
+      )
+      .groupBy(t.agentSkills.agentId);
+    return new Map(rows.map((r) => [r.agentId, Number(r.total)]));
   }
 
   /** Link a skill to an agent at a given order (idempotent: upserts order). */
@@ -225,12 +305,55 @@ export class AgentsRepository {
    * Replace the full set of linked skills for an agent with `skillIds`, assigning
    * order = index. Used by the "Skills" editor tab (attach/reorder). Skills not in
    * the list are unlinked.
+   *
+   * Reordering must NOT silently re-enable a link the user turned off: the
+   * implementation is delete-then-insert, so the existing `enabled` flags are
+   * read first and re-applied per skill (newly-added skills default to true).
+   * The whole swap runs in one transaction — otherwise a failure between the
+   * delete and the insert would drop every link.
    */
   async setSkills(agentId: string, skillIds: string[]): Promise<void> {
-    await this.db.delete(t.agentSkills).where(eq(t.agentSkills.agentId, agentId));
-    if (skillIds.length === 0) return;
-    await this.db
-      .insert(t.agentSkills)
-      .values(skillIds.map((skillId, i) => ({ agentId, skillId, order: i })));
+    await this.db.transaction(async (tx) => {
+      const existing = await tx
+        .select({ skillId: t.agentSkills.skillId, enabled: t.agentSkills.enabled })
+        .from(t.agentSkills)
+        .where(eq(t.agentSkills.agentId, agentId));
+      const enabledBySkill = new Map(existing.map((r) => [r.skillId, r.enabled]));
+
+      await tx.delete(t.agentSkills).where(eq(t.agentSkills.agentId, agentId));
+      if (skillIds.length === 0) return;
+      await tx.insert(t.agentSkills).values(
+        skillIds.map((skillId, i) => ({
+          agentId,
+          skillId,
+          order: i,
+          enabled: enabledBySkill.get(skillId) ?? true,
+        })),
+      );
+    });
+  }
+
+  /**
+   * Toggle a single link's `enabled` flag (the agent editor's per-skill
+   * checkbox). Returns false when no such link exists, so the route can 404
+   * instead of silently succeeding.
+   */
+  async setSkillEnabled(agentId: string, skillId: string, enabled: boolean): Promise<boolean> {
+    const rows = await this.db
+      .update(t.agentSkills)
+      .set({ enabled })
+      .where(and(eq(t.agentSkills.agentId, agentId), eq(t.agentSkills.skillId, skillId)))
+      .returning({ skillId: t.agentSkills.skillId });
+    return rows.length > 0;
+  }
+
+  /** Move an existing link to a new `order`. False when the link doesn't exist. */
+  async setSkillOrder(agentId: string, skillId: string, order: number): Promise<boolean> {
+    const rows = await this.db
+      .update(t.agentSkills)
+      .set({ order })
+      .where(and(eq(t.agentSkills.agentId, agentId), eq(t.agentSkills.skillId, skillId)))
+      .returning({ skillId: t.agentSkills.skillId });
+    return rows.length > 0;
   }
 }

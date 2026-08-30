@@ -9,6 +9,7 @@ import { useParams } from "next/navigation";
 import { EmptyState, SETTINGS_SECTIONS } from "@devdigest/ui";
 import { useTranslations } from "next-intl";
 import { AppShell } from "../../../../../components/app-shell";
+import { routes } from "../../../../../lib/routes";
 import { SettingsApiKeys } from "./_components/SettingsApiKeys";
 import { SettingsModels } from "./_components/SettingsModels";
 import { DEFAULT_SECTION, SECTION_API_KEYS, SECTION_MODELS } from "./constants";
@@ -21,14 +22,14 @@ export function SettingsView() {
   const current = SETTINGS_SECTIONS.find((sec) => sec.key === section) ?? SETTINGS_SECTIONS[0];
 
   return (
-    <AppShell crumb={[{ label: t("breadcrumb"), href: "/settings/api-keys" }, { label: current.label }]}>
+    <AppShell crumb={[{ label: t("breadcrumb"), href: routes.settings() }, { label: current.label }]}>
       <div style={s.layout}>
         <div style={s.nav}>
           <h1 style={s.navTitle}>{t("title")}</h1>
           {SETTINGS_SECTIONS.map((sec) => {
             const on = sec.key === section;
             return (
-              <Link key={sec.key} href={`/settings/${sec.key}`}>
+              <Link key={sec.key} href={routes.settings(sec.key)}>
                 <div style={s.navItem(on)}>{sec.label}</div>
               </Link>
             );

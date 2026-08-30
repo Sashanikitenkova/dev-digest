@@ -1,0 +1,30 @@
+{
+  "title": "Intent",
+  "detect": "Detect intent",
+  "redetect": "Re-detect",
+  "inScope": "In scope",
+  "outOfScope": "Out of scope",
+  "noneListed": "None listed.",
+  "sources": "Sources",
+  "riskAreas": "Risk areas",
+  "stale": "Detected against an earlier commit — re-detect to match the current head.",
+  "classifiedBy": "Classified by {model}",
+  "empty": {
+    "title": "Intent not detected yet",
+    "body": "Derive what this PR is trying to do from its title, description, linked issue and changed files. Runs on the cheap classifier model, not the review model."
+  },
+  "confidence": {
+    "low": "Low confidence",
+    "medium": "Medium confidence",
+    "high": "High confidence"
+  },
+  "reason": {
+    "empty_body": "no PR description",
+    "body_too_short": "description too short to rely on",
+    "github_unavailable": "issue could not be retrieved",
+    "not_in_clone": "not found in the clone",
+    "empty_file": "file is empty",
+    "unsafe_path": "path rejected as unsafe",
+    "external_fetch_disabled": "external links are not fetched"
+  }
+}

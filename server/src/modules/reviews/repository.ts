@@ -1,11 +1,12 @@
 import type { Db } from '../../db/client.js';
 import * as t from '../../db/schema.js';
-import type { Finding, Intent, RunSummary, RunTrace } from '@devdigest/shared';
+import type { Finding, RunSummary, RunTrace } from '@devdigest/shared';
 
 /**
  * A2 — review data-access. The ONLY layer touching the DB for the review
- * domain. Owns `reviews`, `findings`, `pr_intent`, and persists the
+ * domain. Owns `reviews` and `findings`, and persists the
  * observability rows `agent_runs` + `run_traces` (one trace doc per run).
+ * `pr_intent` belongs to `modules/intent/repository.ts`, not here.
  * Workspace scoping is enforced via the PR (which carries workspace_id).
  *
  * The query implementations are colocated, split by aggregate, under
@@ -21,6 +22,7 @@ export type ReviewRow = typeof t.reviews.$inferSelect;
 import * as reviewRepo from './repository/review.repo.js';
 import * as runRepo from './repository/run.repo.js';
 import * as pullRepo from './repository/pull.repo.js';
+import * as skillStatsRepo from './repository/skill-stats.repo.js';
 
 export class ReviewRepository {
   constructor(private db: Db) {}
@@ -125,16 +127,6 @@ export class ReviewRepository {
     return reviewRepo.setFindingDismissed(this.db, findingId, at);
   }
 
-  // ---- intent -------------------------------------------------------------
-
-  upsertIntent(prId: string, intent: Intent): Promise<void> {
-    return pullRepo.upsertIntent(this.db, prId, intent);
-  }
-
-  getIntent(prId: string): Promise<Intent | undefined> {
-    return pullRepo.getIntent(this.db, prId);
-  }
-
   // ---- observability: agent_runs + run_traces ----------------------------
 
   /** Create an agent_runs row in `running` state; returns its id (= the runId). */
@@ -185,5 +177,29 @@ export class ReviewRepository {
 
   getRunTrace(runId: string): Promise<RunTrace | undefined> {
     return runRepo.getRunTrace(this.db, runId);
+  }
+
+  // ---- skill stats read-model ---------------------------------------------
+  // Exposed here (not in the skills module) because every table involved is
+  // owned by this aggregate. `modules/skills/service.ts` composes these with
+  // the agents repository through the container. See skill-stats.repo.ts for
+  // what the numbers do and do not mean.
+
+  /** Runs per skill and how many injected its block. Omit `skillId` for all. */
+  pullStatsBySkill(
+    workspaceId: string,
+    since: Date,
+    skillId?: string,
+  ): Promise<skillStatsRepo.SkillPullRow[]> {
+    return skillStatsRepo.pullStatsBySkill(this.db, workspaceId, since, skillId);
+  }
+
+  /** Findings by category from agents linking each skill. Association, not cause. */
+  findingStatsBySkill(
+    workspaceId: string,
+    since: Date,
+    skillId?: string,
+  ): Promise<skillStatsRepo.SkillFindingRow[]> {
+    return skillStatsRepo.findingStatsBySkill(this.db, workspaceId, since, skillId);
   }
 }

@@ -11,8 +11,9 @@ import { AgentCard } from "../_components/AgentCard";
 import { AgentEditor } from "./_components/AgentEditor";
 import { useAgents, useAgent, useUpdateAgent } from "../../../lib/hooks/agents";
 import { ApiError } from "../../../lib/api";
+import { routes } from "../../../lib/routes";
 
-const VALID_TABS = ["config"];
+const VALID_TABS = ["config", "skills"];
 
 export default function AgentEditorPage() {
   const params = useParams<{ id: string }>();
@@ -28,7 +29,7 @@ export default function AgentEditorPage() {
   const setTab = (t: string) => {
     const sp = new URLSearchParams(search.toString());
     sp.set("tab", t);
-    router.replace(`/agents/${id}?${sp.toString()}`);
+    router.replace(`${routes.agent(id)}?${sp.toString()}`);
   };
 
   const crumb = [
@@ -85,7 +86,8 @@ export default function AgentEditorPage() {
                 key={a.id}
                 ag={a}
                 active={a.id === id}
-                onClick={() => router.push(`/agents/${a.id}?tab=${tab}`)}
+                {...(a.skills_count !== undefined ? { skillCount: a.skills_count } : {})}
+                onClick={() => router.push(`${routes.agent(a.id)}?tab=${tab}`)}
                 onToggle={(enabled) => update.mutate({ id: a.id, patch: { enabled } })}
               />
             ))}
@@ -108,7 +110,7 @@ export default function AgentEditorPage() {
               </Badge>
               {!agent.enabled && <Badge color="var(--text-muted)">disabled</Badge>}
               <div style={{ marginLeft: "auto" }}>
-                <Button kind="secondary" size="sm" icon="GitPullRequest" onClick={() => router.push("/")}>
+                <Button kind="secondary" size="sm" icon="GitPullRequest" onClick={() => router.push(routes.home())}>
                   Run on a PR…
                 </Button>
               </div>

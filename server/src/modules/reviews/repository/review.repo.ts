@@ -48,6 +48,10 @@ export async function insertFindings(
         confidence: f.confidence,
         kind: f.kind ?? 'finding',
         trifectaComponents: f.trifecta_components ?? null,
+        // Set by reviewer-core's scope filter. Persisted so a demotion survives
+        // a reload — a silently demoted finding is worse than an undemoted one.
+        outOfScope: f.out_of_scope ?? false,
+        scopeNote: f.scope_note ?? null,
       })),
     )
     .returning();

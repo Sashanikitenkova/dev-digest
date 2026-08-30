@@ -71,13 +71,14 @@ describe('AI contracts parse fixtures', () => {
     ).not.toThrow();
     expect(() =>
       BlastRadius.parse({
+        index: { status: 'full', files_indexed: 12, last_indexed_sha: 'abc123' },
         changed_symbols: [{ name: 'rateLimit', file: 'a.ts', kind: 'function' }],
         downstream: [
           {
             symbol: 'rateLimit',
             callers: [{ name: 'publicRouter', file: 'b.ts', line: 23 }],
-            endpoints_affected: ['GET /x'],
-            crons_affected: ['c'],
+            endpoints_affected: [{ endpoint: 'GET /x', depth: 1 }],
+            crons_affected: [{ endpoint: 'c', depth: 2 }],
           },
         ],
         summary: 's',

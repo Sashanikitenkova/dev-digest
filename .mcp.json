@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "devdigest": {
+      "type": "stdio",
+      "command": "npm",
+      "args": ["--prefix", "./mcp", "run", "--silent", "start"],
+      "timeout": 30000,
+      "env": {
+        "DEVDIGEST_API_BASE": "http://localhost:3001",
+        "DEVDIGEST_WEB_BASE": "http://localhost:3000"
+      }
+    }
+  }
+}

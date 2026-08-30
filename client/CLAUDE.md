@@ -29,6 +29,14 @@ Next.js 15 (App Router), React 19, TanStack Query, Tailwind 4, `next-intl`,
   the vendored copy directly or resync it from its source.
 - Cross-cutting chrome (nav, breadcrumbs, `g`-then-key shortcuts) lives in
   `src/components/app-shell`, not per-page.
+- **Client-first by design, not by default.** Every route is `"use client"`
+  top-to-bottom — there's no Server Component data fetching anywhere in
+  `client/`. This is deliberate: the app talks to exactly one local Fastify
+  API purely through TanStack Query hooks (`src/lib/hooks/*`), so mixing
+  server- and client-fetched data would add real complexity (two caching
+  models, hydration mismatches) for no payoff on a local-first internal
+  tool. Don't "fix" a page to a Server Component without discussing it
+  first — it's a considered trade-off, not drift.
 
 ## Do-not-touch
 

@@ -44,6 +44,7 @@
     },
     "prompt": {
       "system": "System",
+      "intent": "Derived intent — cheap classifier (dynamic)",
       "skills": "Skills (dynamic)",
       "memory": "Memory (dynamic)",
       "repoMap": "Repo skeleton — repo-intel (dynamic)",

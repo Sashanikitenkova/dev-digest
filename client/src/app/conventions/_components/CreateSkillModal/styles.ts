@@ -1,0 +1,35 @@
+import type React from "react";
+
+export const s: Record<string, React.CSSProperties> = {
+  body: { padding: "22px 24px", overflowY: "auto" },
+  banner: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "12px 14px",
+    marginBottom: 22,
+    borderRadius: 8,
+    border: "1px solid var(--border)",
+    background: "var(--bg-hover)",
+    color: "var(--text-secondary)",
+    fontSize: 13,
+    lineHeight: 1.5,
+  },
+  row: { display: "flex", gap: 20 },
+  rowItem: { flex: 1, minWidth: 0 },
+  vetNotice: {
+    display: "flex",
+    gap: 8,
+    padding: "10px 12px",
+    marginBottom: 20,
+    borderRadius: 8,
+    border: "1px solid var(--border)",
+    background: "var(--bg-hover)",
+    color: "var(--text-muted)",
+    fontSize: 12.5,
+    lineHeight: 1.5,
+  },
+  footer: { display: "flex", alignItems: "center", gap: 12, width: "100%" },
+  footerActions: { display: "flex", gap: 8, marginLeft: "auto" },
+  error: { color: "var(--crit)", fontSize: 12.5 },
+};

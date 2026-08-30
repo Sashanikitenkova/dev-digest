@@ -8,6 +8,7 @@ import { type ShellContext } from "@devdigest/ui";
 import { useTheme } from "../../../lib/theme";
 import { useActiveRepo } from "../../../lib/repo-context";
 import { usePulls, useDeleteRepo } from "../../../lib/hooks";
+import { routes } from "../../../lib/routes";
 import { activeKeyFor, toShellRepo } from "../helpers";
 
 interface ShellContextOptions {
@@ -31,12 +32,12 @@ export function useShellContext({ onOpenCommandPalette }: ShellContextOptions): 
   const onSelectRepo = React.useCallback(
     (id: string) => {
       setRepoId(id);
-      router.push(`/repos/${id}/pulls`);
+      router.push(routes.pulls(id));
     },
     [setRepoId, router],
   );
 
-  const onAddRepo = React.useCallback(() => router.push("/onboarding"), [router]);
+  const onAddRepo = React.useCallback(() => router.push(routes.onboarding()), [router]);
 
   const onRemoveRepo = React.useCallback(
     (id: string) => {
@@ -49,7 +50,7 @@ export function useShellContext({ onOpenCommandPalette }: ShellContextOptions): 
         onSuccess: () => {
           if (repoId === id) {
             const next = repos.find((r) => r.id !== id);
-            router.push(next ? `/repos/${next.id}/pulls` : "/onboarding");
+            router.push(next ? routes.pulls(next.id) : routes.onboarding());
           }
         },
       });
