@@ -282,7 +282,12 @@ jobs:
       - name: start LiteLLM proxy
         run: pnpm proxy:up
 
-      - run: pnpm exec vitest run --no-file-parallelism "agents/${{ matrix.agent }}/"
+      # --retry=2: tool-tier runs on a cheap model occasionally stop early (a skeleton reply of
+      # ~90 output tokens where a real review is ~900) and OpenRouter throttles under load. Measured
+      # on this suite: one case passed 3/3 in isolation right after failing once in a full run — a
+      # 75% pass rate, inside the (20%, 80%) flaky band the engine itself defines. evals/README.md
+      # prescribes retries here. A genuine regression still fails all three attempts.
+      - run: pnpm exec vitest run --no-file-parallelism --retry=2 "agents/${{ matrix.agent }}/"
 
       - name: proxy logs
         if: failure()
@@ -345,7 +350,7 @@ jobs:
       - name: run workflow tier
         id: run
         continue-on-error: true
-        run: pnpm exec vitest run --no-file-parallelism "workflow/"
+        run: pnpm exec vitest run --no-file-parallelism --retry=2 "workflow/"
 
       - name: report result
         if: always()

@@ -186,62 +186,88 @@ workflow cases:
 > checkout is disposable); locally, prefer the Anthropic path or a throwaway clone for the workflow
 > tier.
 
-### Wiring it into GitHub Actions (per-PR)
+### GitHub Actions — the per-PR gate (`.github/workflows/evals.yml`)
 
-The engine is CI-ready: bring the proxy up as a step, wait for it, run the tier, tear it down. Put
-the OpenRouter key in the repo's **Actions secrets** as `OPENROUTER_API_KEY` (Settings → Secrets and
-variables → Actions). Create `.github/workflows/<name>.yml` in your repo:
+Shipped and wired. Routing is **data-driven, not path-filter-driven**: the `detect` job diffs the
+PR against its base and hands the file list to `scripts/ci-detect.mjs`, which decides which tiers
+run.
 
-```yaml
-name: evals
-on:
-  pull_request:
-    paths: ['evals/**', '.claude/**', 'CLAUDE.md']   # only when the harness/artifacts change
+| changed | job | tier | blocking |
+|---|---|---|---|
+| `.claude/skills/<n>/**` or `evals/skills/<n>/**` | `skills` (matrix) | content, direct OpenRouter, **no proxy** | yes |
+| `.claude/agents/<n>.md` or `evals/agents/<n>/**` | `agents` (matrix) | tool, via LiteLLM proxy | yes |
+| `CLAUDE.md`, any agent, `evals/workflow/**`, `evals/src/**` | `workflow` | tool, via LiteLLM proxy | **no — advisory** |
+| any skill | `quality` | static, no model, no key | yes |
 
-permissions:
-  contents: read
+**A changed artifact with no written evals is a SKIP, not a failure.** The detector reports it on
+`skipped_skills` / `skipped_agents`; the job writes a `::notice` annotation plus a "Skipped —
+changed, but no evals written" block in the job summary, and the run stays green.
 
-jobs:
-  workflow-evals:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: evals
-    env:
-      EVAL_BACKEND: openrouter
-      OPENROUTER_BASE_URL: http://localhost:4000
-      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}   # repo Actions secret
-      EVAL_MODEL: google/gemini-2.5-flash
-      EVAL_JUDGE_MODEL: google/gemini-2.5-flash
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with: { version: 10 }
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: evals/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
+**Why there is no `on.pull_request.paths:` filter.** A workflow that never triggers leaves a
+required check permanently "expected — waiting", which blocks the PR forever. So `detect` always
+runs (free, ~20s) and the expensive jobs guard themselves with `if:` — a job skipped by `if:`
+counts as successful for branch protection.
 
-      # --- the engine ---
-      - run: docker compose -f proxy/docker-compose.yml up -d   # OPENROUTER_API_KEY from job env
-      - run: pnpm proxy:wait                                     # block until the proxy answers
-      - run: pnpm eval:workflow                                  # or eval:agents / eval:skills / eval
-      - if: failure()
-        run: docker compose -f proxy/docker-compose.yml logs --tail 100
-      - if: always()
-        run: docker compose -f proxy/docker-compose.yml down
+**Why `workflow` is advisory.** `activation` cases are behaviour-shaped: a capable non-Anthropic
+model may perform the underlying action directly instead of invoking the Skill tool, which the
+assertion counts as a miss even though the model did the right thing. See the caveats under
+[Which cheap model](#which-cheap-model--verified).
+
+Because `continue-on-error` makes the **check show green whichever way the tier goes**, the job
+reports its own result explicitly — a `::warning` annotation plus a PASS/FAIL block in the job
+summary — so an advisory job does not become an ignored job. When it says FAILED, triage by case
+kind before dismissing it:
+
+| failing case | read it as |
+|---|---|
+| `dispatch`, `contrast`, `trace` | **real signal** — the harness stopped routing to the subagent, or `CLAUDE.md` stopped changing what gets read |
+| `activation` | often a **false negative** on a non-Anthropic model — it asserts the Skill tool is invoked, but a capable model may just do the action directly |
+
+#### Models — three knobs, three levels of override
+
+Precedence: **`workflow_dispatch` input → repo variable → default in the workflow**. Repo variables
+live under *Settings → Secrets and variables → Actions → Variables*, so models change without a
+commit. The key itself is the Actions secret `OPENROUTER_API_KEY`.
+
+| knob | repo variable | default | why |
+|---|---|---|---|
+| content tier (`skills`) | `EVAL_MODEL_CONTENT` | `google/gemini-2.5-flash-lite` | tool-free, so the cheapest capable model is enough |
+| tool tiers (`agents`, `workflow`) | `EVAL_MODEL_TOOL` | `google/gemini-2.5-flash` | the only model measured to actually **dispatch** a subagent |
+| judge | `EVAL_JUDGE_MODEL` | `deepseek/deepseek-chat` | a **different family** from every task model, so nothing grades its own output |
+
+If the content tier starts failing on report-structure cases, raise `EVAL_MODEL_CONTENT` to
+`google/gemini-2.5-flash` — one variable, no commit.
+
+#### Fork PRs
+
+GitHub does not pass secrets to workflows triggered by a fork PR. The `detect` job publishes a
+`has_key` output and every paid job gates on it, so a fork PR **skips** the model-backed jobs with
+a warning annotation instead of failing on a missing key.
+
+#### Retries on the tool tiers
+
+The `agents` and `workflow` jobs run vitest with `--retry=2`. A cheap model occasionally stops
+early — a skeleton reply of ~90 output tokens where a real review is ~900 — and OpenRouter throttles
+under load. Measured on this suite: a case that failed once in a full run then passed 3/3 in
+isolation, a 75% pass rate, inside the `(FLAKY_LOW, FLAKY_HIGH)` band `src/config.ts` itself calls
+flaky. A genuine regression still fails all three attempts.
+
+#### Reproducing a CI job locally
+
+The workflow calls vitest with a path filter — the trailing slash matters, because vitest filters
+are substring matches on the file path (`agents/architecture-reviewer` would also pull in
+`architecture-reviewer-lite`):
+
+```bash
+pnpm exec vitest run "skills/dependency-checker/"                        # what job `skills` runs
+pnpm proxy:up && pnpm exec vitest run --no-file-parallelism "agents/architecture-reviewer/"
 ```
 
-Notes:
-- ubuntu runners ship Docker + `docker compose`, so no extra setup is needed.
-- The proxy container reads `OPENROUTER_API_KEY` straight from the job `env` (which is fed by the
-  secret) — you don't pass it to `docker compose` explicitly.
-- Because tool tiers cost real tokens, gate on `paths:` (only when the harness/artifacts change) and
-  keep the case count small. For a stricter gate, split into a required `eval:agents`/`eval:skills`
-  job and a non-blocking `eval:workflow` job (activation flakiness, above).
+> **`pnpm-workspace.yaml` is load-bearing.** pnpm ≥10 blocks dependency postinstall scripts, and
+> pnpm ≥11 no longer reads `pnpm.onlyBuiltDependencies` from `package.json`. Without that file
+> `pnpm install --frozen-lockfile` prints `ERR_PNPM_IGNORED_BUILDS` and every eval run dies on a
+> missing esbuild binary.
+
 
 ## Module layout — `src/` (the engine)
 
