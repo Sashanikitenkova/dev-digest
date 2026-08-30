@@ -331,6 +331,26 @@ null type. This is not a privilege boundary — the caller already owns the repo
 but do not read the roots as a security control. Evidence:
 `server/src/modules/context/service.ts:43-58`, `:104`, `:156`.
 
+### 2026-08-30 — [Decision] Eval runs are stored apart from `agent_runs`, on purpose
+
+The eval pipeline (SPEC-03) writes `eval_run_batches` / `eval_runs` and never a
+row in `agent_runs`. `agent_runs` is the observability record of *real PR
+reviews* and feeds the run-cost rollup and the per-agent accept-rate stats, so
+synthetic replays landing there would silently corrupt both. The accepted cost is
+that eval spend is invisible to every existing cost surface — a future "total
+spend" view has to union the two deliberately, not by accident.
+Evidence: `server/src/db/schema/eval.ts` (`evalRunBatches` docblock),
+`server/test/eval.it.test.ts` (asserts no `agent_runs` row is written by a batch).
+
+### 2026-08-30 — [Decision] A batch aggregates by summing counters, never by averaging per-case rates
+
+`eval_runs` persists raw `tp/fp/fn/kept/dropped` alongside the three rates
+precisely so the batch row can be re-derived and audited later. Averaging the
+per-case rates instead weights a one-target case the same as a five-target one,
+so the aggregate would move when the case SET changed rather than when the agent
+did. Evidence: `server/src/modules/eval/scoring.ts` (`aggregateBatch`),
+`server/test/eval-scoring.test.ts` ("sums counters rather than averaging per-case rates").
+
 ## Tool & Library Notes
 
 ### 2026-07-20 — [Context] `getConventionSamples` returns file PATHS, not code
@@ -390,6 +410,17 @@ records every invocation in a public `calls` array, so `expect(mock.calls)
 2026-08-11 entry, a leak to the real network shows up as seconds, not as a
 failed expectation. Evidence: `server/src/platform/container.ts:171`,
 `server/test/smart-diff.it.test.ts`.
+
+### 2026-08-30 — [Context] A route-level Zod schema returns 422 before a service ever throws its own 400
+
+`fastify-type-provider-zod` validates `body`/`querystring` before the handler
+runs, so a service-layer `ValidationError` (422) or `AppError(..., 400)` guarding
+the same shape is unreachable from the wire and only fires for internal callers.
+An integration test asserting the service's status code will fail against the
+route's. Keep both — the service guard still protects non-HTTP callers — but
+assert the route's code in route tests.
+Evidence: `server/src/modules/eval/routes.ts` (`ExpectationBody`, `targets.min(1)`),
+`server/test/eval.it.test.ts` ("rejects an expectation with no targets").
 
 ## Recurring Errors & Fixes
 
@@ -564,6 +595,29 @@ structured-output prompt means more reasoning; if a response gets truncated
 mid-reasoning the repair loop reprompts with an even longer message and reasons
 again. Worth re-timing that case with the reasoning-token counter now that we
 log it.
+
+### 2026-08-30 — Seeded findings are worthless unless `pr_files.patch` is populated
+
+Building the L06 eval pipeline surfaced that the demo PR had `pr_files` rows with
+a null `patch` and a review with a null `agent_id`. With no clone on disk
+`diffFromPrFiles` then reconstructs an empty diff, the grounding gate drops every
+finding, and nothing downstream can cite a real line — the failure is completely
+silent, with no error anywhere. The seed now ships real hunks whose line numbers
+the seeded findings fall inside, and a unit test runs the seeded findings through
+`groundFindings` so editing a patch without moving the findings fails in CI
+instead of in a demo. Evidence: `server/src/db/seed.ts` (`DEMO_PATCHES`,
+`DEMO_FINDINGS`), `server/test/eval-seed-fixtures.test.ts`.
+
+### 2026-08-30 — Seed top-ups must key on identity, not on "is the table empty"
+
+The first version of the eval-dataset seed inserted its findings only when the
+demo review had none. That is correct on a fresh database and a no-op on every
+existing one — which already carried the original two undecided findings, so a
+developer re-seeding would have been left permanently short of the decided
+findings the eval set is built from. Topping up by TITLE makes it idempotent in
+both directions. This is the same class of bug as the `if (!pr)` guard noted in
+the seed's own comment, one level down. Evidence: `server/src/db/seed.ts`
+(the `seenTitles` / `missing` top-up).
 
 ## Open Questions
 

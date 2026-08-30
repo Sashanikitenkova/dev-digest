@@ -78,8 +78,16 @@ export const EvalCase = z.object({
   input_diff: z.string(),
   input_files: z.unknown(),
   input_meta: z.unknown(),
+  /** Parses as `EvalExpectation` (contracts/eval-ci.ts); the column stays jsonb. */
   expected_output: z.unknown(),
   notes: z.string().nullish(),
+  /**
+   * The finding this case was frozen from (SPEC-03 AC-10). Nulled — not
+   * cascaded — if that finding is later deleted, so re-running a review never
+   * destroys the eval set built from its predecessor. Null on a hand-written case.
+   */
+  source_finding_id: z.string().nullish(),
+  created_at: z.string().nullish(),
 });
 export type EvalCase = z.infer<typeof EvalCase>;
 

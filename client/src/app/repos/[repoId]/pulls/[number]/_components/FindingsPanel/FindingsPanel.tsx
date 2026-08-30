@@ -8,6 +8,10 @@ import { Toggle, EmptyState } from "@devdigest/ui";
 import type { FindingRecord } from "@devdigest/shared";
 import { FindingCard } from "../FindingCard";
 import { useFindingAction } from "../../../../../../../lib/hooks/reviews";
+import {
+  useCreateEvalCaseFromFinding,
+  useFindingsWithCases,
+} from "../../../../../../../lib/hooks/eval";
 import { KEY_TO_ACTION } from "./constants";
 import { countOutOfScope, visibleFindings } from "./helpers";
 import { s } from "./styles";
@@ -30,6 +34,15 @@ export function FindingsPanel({
 }) {
   const t = useTranslations("prReview");
   const action = useFindingAction();
+  const createEvalCase = useCreateEvalCaseFromFinding();
+  // One probe for the whole panel rather than a query per card — a review can
+  // carry dozens of findings and each would otherwise be its own request.
+  const findingIds = React.useMemo(() => findings.map((f) => f.id), [findings]);
+  const inEvalSet = useFindingsWithCases(findingIds);
+  const evalCaseIds = React.useMemo(
+    () => new Set(inEvalSet.data?.finding_ids ?? []),
+    [inEvalSet.data],
+  );
   const [hideLow, setHideLow] = React.useState(false);
   // Collapsed by default. Safe because the scope filter's hard escape hatch
   // means nothing CRITICAL, security or correctness-related can ever be tagged
@@ -97,6 +110,9 @@ export function FindingsPanel({
               repoFullName={repoFullName}
               headSha={headSha}
               onAction={(act) => action.mutate({ findingId: f.id, action: act, prId })}
+              onCreateEvalCase={() => createEvalCase.mutate(f.id)}
+              inEvalSet={evalCaseIds.has(f.id)}
+              evalPending={createEvalCase.isPending}
             />
           ))
         )}

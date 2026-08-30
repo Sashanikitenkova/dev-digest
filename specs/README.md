@@ -40,3 +40,4 @@ where it is, as the record of what was decided and when.
 |---|---|---|---|---|
 | [SPEC-01](SPEC-01-2026-08-26-project-context-folder.md) | Project Context Folder | 2026-08-26 | draft | `server` · `client` · `reviewer-core` |
 | [SPEC-02](SPEC-02-2026-08-29-pr-why-risk-brief.md) | Why + Risk Brief for Pull Requests | 2026-08-29 | approved | `server` · `client` |
+| [SPEC-03](SPEC-03-2026-08-30-eval-pipeline.md) | Eval Pipeline for Reviewer Agents | 2026-08-30 | draft | `server` · `client` |

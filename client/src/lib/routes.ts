@@ -13,6 +13,8 @@ export const routes = {
   skills: () => "/skills",
   skill: (id: string) => `/skills/${id}`,
   conventions: () => "/conventions",
+  evalDashboard: () => "/eval",
+  agentEvals: (agentId: string) => `/eval/${agentId}`,
   context: () => "/context",
 } as const;
 

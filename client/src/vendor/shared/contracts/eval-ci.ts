@@ -34,14 +34,32 @@ export const EvalRunRecord = z.object({
   id: z.string(),
   case_id: z.string(),
   case_name: z.string().nullish(),
+  /** The batch this row belongs to. Null only for rows written before SPEC-03. */
+  batch_id: z.string().nullish(),
   ran_at: z.string(),
   actual_output: z.unknown(),
   pass: z.boolean().nullable(),
   recall: z.number().nullable(),
   precision: z.number().nullable(),
   citation_accuracy: z.number().nullable(),
+  /**
+   * The RAW counters the three rates above were computed from.
+   *
+   * A batch aggregates by summing counters, never by averaging per-case rates,
+   * so without these a batch row can never be re-derived or audited from its
+   * case rows (SPEC-03 AC-36).
+   */
+  tp: z.number().int().nullish(),
+  fp: z.number().int().nullish(),
+  fn: z.number().int().nullish(),
+  kept: z.number().int().nullish(),
+  dropped: z.number().int().nullish(),
   duration_ms: z.number().int().nullable(),
+  tokens_in: z.number().int().nullish(),
+  tokens_out: z.number().int().nullish(),
   cost_usd: z.number().nullable(),
+  /** Why this case failed to execute; null on a case that ran (SPEC-03 AC-23). */
+  error: z.string().nullish(),
 });
 export type EvalRunRecord = z.infer<typeof EvalRunRecord>;
 
@@ -87,6 +105,143 @@ export const EvalDashboard = z.object({
   alert: z.string().nullable(),
 });
 export type EvalDashboard = z.infer<typeof EvalDashboard>;
+
+// ===========================================================================
+// Eval — expectations, batches, comparison (SPEC-03)
+// ===========================================================================
+
+/**
+ * What an eval case asserts. Derived from the decision the author already made
+ * on the source finding: `accept` → must_find, `dismiss` → must_not_flag.
+ */
+export const EvalExpectationKind = z.enum(['must_find', 'must_not_flag']);
+export type EvalExpectationKind = z.infer<typeof EvalExpectationKind>;
+
+/**
+ * One `file` + line-range the expectation points at.
+ *
+ * `severity` / `category` / `title` are copied off the source finding for
+ * display only. Scoring NEVER reads them (SPEC-03 AC-28): a finding matches a
+ * target when its file is equal AND its line range intersects, and on nothing
+ * else. Keeping them here makes a case readable without joining back to a
+ * finding that may since have been deleted.
+ */
+export const EvalExpectedTarget = z.object({
+  file: z.string().min(1),
+  start_line: z.number().int(),
+  end_line: z.number().int(),
+  severity: z.string().nullish(),
+  category: z.string().nullish(),
+  title: z.string().nullish(),
+});
+export type EvalExpectedTarget = z.infer<typeof EvalExpectedTarget>;
+
+/** The parsed shape of `eval_cases.expected_output` (the column stays jsonb). */
+export const EvalExpectation = z.object({
+  kind: EvalExpectationKind,
+  targets: z.array(EvalExpectedTarget).min(1),
+});
+export type EvalExpectation = z.infer<typeof EvalExpectation>;
+
+/**
+ * What `eval_runs.actual_output` holds.
+ *
+ * The dropped findings are persisted WITH the gate's reason, not just counted:
+ * citation_accuracy is otherwise a number you cannot act on — you can see it
+ * fell but not which citation was hallucinated (SPEC-03 AC-37).
+ */
+export const EvalActualOutput = z.object({
+  findings: z.array(Finding),
+  dropped: z.array(z.object({ finding: Finding, reason: z.string() })),
+  grounding: z.string(),
+});
+export type EvalActualOutput = z.infer<typeof EvalActualOutput>;
+
+export const EvalBatchStatus = z.enum(['running', 'done', 'failed']);
+export type EvalBatchStatus = z.infer<typeof EvalBatchStatus>;
+
+/**
+ * One linked skill as it stood when a batch launched. A skill body is versioned
+ * (`skills.version`), so an edit between two runs makes them incomparable —
+ * this is what records that it happened (SPEC-03 AC-38, AC-43).
+ */
+export const EvalSkillSnapshot = z.object({
+  skill_id: z.string(),
+  name: z.string().nullish(),
+  version: z.number().int(),
+});
+export type EvalSkillSnapshot = z.infer<typeof EvalSkillSnapshot>;
+
+/**
+ * One execution of a whole case set (`eval_run_batches`).
+ *
+ * Everything about the agent that could differ between two runs is snapshotted
+ * here at launch and never updated, so a comparison can attribute a metric
+ * movement to a specific definition change rather than guessing.
+ */
+export const EvalBatchRecord = z.object({
+  id: z.string(),
+  owner_kind: EvalOwnerKind,
+  owner_id: z.string(),
+  status: EvalBatchStatus,
+  started_at: z.string(),
+  finished_at: z.string().nullable(),
+  // ---- immutable snapshot of the agent under test ----
+  agent_version: z.number().int().nullable(),
+  system_prompt: z.string(),
+  skills_snapshot: z.array(EvalSkillSnapshot),
+  provider: z.string().nullable(),
+  model: z.string().nullable(),
+  // ---- results ----
+  recall: z.number().nullable(),
+  precision: z.number().nullable(),
+  citation_accuracy: z.number().nullable(),
+  traces_passed: z.number().int(),
+  traces_total: z.number().int(),
+  duration_ms: z.number().int().nullable(),
+  tokens_in: z.number().int().nullable(),
+  tokens_out: z.number().int().nullable(),
+  cost_usd: z.number().nullable(),
+  error: z.string().nullable(),
+});
+export type EvalBatchRecord = z.infer<typeof EvalBatchRecord>;
+
+/** Response of `POST /agents/:id/eval-runs` — the batch is still running. */
+export const EvalBatchStart = z.object({
+  batch_id: z.string(),
+  cases_total: z.number().int(),
+});
+export type EvalBatchStart = z.infer<typeof EvalBatchStart>;
+
+/** A batch plus its per-case rows — what the run detail / poller reads. */
+export const EvalBatchDetail = z.object({
+  batch: EvalBatchRecord,
+  runs: z.array(EvalRunRecord),
+});
+export type EvalBatchDetail = z.infer<typeof EvalBatchDetail>;
+
+/** Signed change between two batches, for the compare view. */
+export const EvalMetricDelta = z.object({
+  recall: z.number().nullable(),
+  precision: z.number().nullable(),
+  citation_accuracy: z.number().nullable(),
+  cost_usd: z.number().nullable(),
+});
+export type EvalMetricDelta = z.infer<typeof EvalMetricDelta>;
+
+/**
+ * Two batches side by side. `case_set_mismatch` is true when the two did not
+ * execute the same set of cases — the delta is then not attributable to the
+ * definition change and the surface must say so (SPEC-03 AC-42).
+ */
+export const EvalCompare = z.object({
+  a: EvalBatchRecord,
+  b: EvalBatchRecord,
+  delta: EvalMetricDelta,
+  case_set_mismatch: z.boolean(),
+  skills_changed: z.boolean(),
+});
+export type EvalCompare = z.infer<typeof EvalCompare>;
 
 // ===========================================================================
 // Compose Review

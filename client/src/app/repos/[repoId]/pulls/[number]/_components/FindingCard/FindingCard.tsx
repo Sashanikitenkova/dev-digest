@@ -28,6 +28,9 @@ export function FindingCard({
   focused,
   defaultExpanded,
   onAction,
+  onCreateEvalCase,
+  inEvalSet,
+  evalPending,
   pending,
   repoFullName,
   headSha,
@@ -39,6 +42,18 @@ export function FindingCard({
   /** This is the ?finding= deep-link target: expand and scroll into view. */
   isTarget?: boolean;
   onAction?: (action: FindingActionKind, reply?: string) => void;
+  /**
+   * Freeze this finding into an eval case (SPEC-03).
+   *
+   * A separate prop rather than another `FindingActionKind`: that enum is a
+   * shared Zod contract whose values map 1:1 onto `POST /findings/:id/<action>`
+   * route paths, so widening it to carry a UI-only action would invent an
+   * endpoint that does not exist.
+   */
+  onCreateEvalCase?: () => void;
+  /** This finding already has an eval case — the control reads as done, not new. */
+  inEvalSet?: boolean;
+  evalPending?: boolean;
   pending?: boolean;
   repoFullName?: string | null;
   headSha?: string | null;
@@ -128,6 +143,22 @@ export function FindingCard({
             >
               {t("finding.dismiss")}
             </Button>
+            {onCreateEvalCase && (
+              <Button
+                kind="ghost"
+                size="sm"
+                icon="FlaskConical"
+                // Only a decided finding is a label: an eval case records a
+                // judgement the reviewer already made, so the control stays
+                // disabled until accept or dismiss has been clicked.
+                disabled={evalPending || inEvalSet || !muted}
+                active={inEvalSet}
+                title={muted ? undefined : t("finding.evalNeedsDecision")}
+                onClick={() => onCreateEvalCase()}
+              >
+                {inEvalSet ? t("finding.inEvalSet") : t("finding.turnIntoEvalCase")}
+              </Button>
+            )}
           </div>
         </div>
       )}

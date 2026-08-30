@@ -8,6 +8,15 @@ vi.mock("../../../../../../../lib/hooks/reviews", () => ({
   useFindingAction: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
+// The panel also asks which findings already have an eval case, so the
+// "Turn into eval case" control can read as done rather than new (SPEC-03).
+// Mocked at the module boundary like every other hook here — these tests run
+// without a QueryClientProvider by design.
+vi.mock("../../../../../../../lib/hooks/eval", () => ({
+  useCreateEvalCaseFromFinding: () => ({ mutate: vi.fn(), isPending: false }),
+  useFindingsWithCases: () => ({ data: { finding_ids: [] } }),
+}));
+
 import { FindingsPanel } from "./FindingsPanel";
 
 afterEach(cleanup);

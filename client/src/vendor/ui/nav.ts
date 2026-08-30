@@ -42,6 +42,10 @@ export const NAV: NavGroup[] = [
       // house-rule → merge into a Skill → link to an Agent), so it reads as the
       // upstream source rather than a third peer.
       { key: "conventions", label: "Conventions", icon: "ListChecks", href: "/conventions", gKey: "c" },
+      // Eval Dashboard closes the loop the other three open: author a skill,
+      // attach it to an agent, then measure whether that changed anything.
+      // `gKey: "e"` — p/s/a/c/x and "," are taken, and "e" is free.
+      { key: "eval", label: "Eval Dashboard", icon: "Gauge", href: "/eval", gKey: "e" },
     ],
   },
 ];
@@ -74,6 +78,7 @@ export const SHORTCUTS: ShortcutDef[] = [
   { keys: "g a", label: "Go to Agents", group: "Navigation" },
   { keys: "g c", label: "Go to Conventions", group: "Navigation" },
   { keys: "g x", label: "Go to Project Context", group: "Navigation" },
+  { keys: "g e", label: "Go to Eval Dashboard", group: "Navigation" },
   { keys: "j / k", label: "Next / previous finding", group: "Findings" },
   { keys: "a", label: "Accept finding", group: "Findings" },
   { keys: "d", label: "Dismiss finding", group: "Findings" },

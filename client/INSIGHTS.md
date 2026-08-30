@@ -141,6 +141,31 @@ expected to report back. Evidence:
 `client/src/app/agents/[id]/_components/AgentEditor/_components/ContextTab/ContextTab.tsx`
 (`saveErrorText`), `client/src/lib/api.ts:8-19`.
 
+### 2026-08-30 — [Mistake] `EvalDashboard.current` cannot express "never ran", so zeros read as a total regression
+
+`EvalDashboard.current` types `recall` / `precision` / `citation_accuracy` as
+plain non-nullable numbers, so an agent that has never been evaluated comes back
+from `GET /eval/dashboard` as three zeros rather than nulls. Rendering those
+directly showed a confident `0%` on a brand-new agent — indistinguishable from a
+reviewer that scored nothing, which is exactly the lie the "no evidence" rule
+exists to prevent. The sentinel is `current.traces_total === 0`; the per-case
+`EvalRunRecord` rates ARE nullable and can be trusted directly. Caught by hitting
+the live endpoint, not by the tests, which had only mocked the `undefined` shape.
+Evidence: `client/src/app/agents/[id]/_components/AgentEditor/_components/EvalsTab/EvalsTab.tsx`
+(`measured`), `client/src/vendor/shared/contracts/eval-ci.ts` (`EvalDashboard`).
+
+### 2026-08-30 — [Mistake] Adding a data hook to a component breaks its parent's tests, not its own
+
+Wiring `useFindingsWithCases` into `FindingsPanel` made all nine pre-existing
+`FindingsPanel` tests fail with "No QueryClient set" — those tests mock the hooks
+module rather than providing a QueryClientProvider, so any hook module left
+unmocked runs for real. The failure surfaces in the parent's suite with an error
+that names React Query rather than the new import, which reads as unrelated
+breakage. When adding a hook to an existing component, grep for that component's
+`*.test.tsx` and add the module to its `vi.mock` list in the same change.
+Evidence: `client/src/app/repos/[repoId]/pulls/[number]/_components/FindingsPanel/FindingsPanel.test.tsx`
+(the `lib/hooks/eval` mock).
+
 ## Codebase Patterns
 
 ### 2026-06-24 — [Decision] One magnitude-adaptive `formatCost`, not a fixed precision per surface
@@ -206,6 +231,16 @@ duplicates every chord — and this is the second deliberate exception to the
 do-not-touch rule on vendored `nav.ts`, after Conventions (2026-07-20), so a
 resync against `@devdigest/ui` must preserve both. Evidence:
 `client/src/vendor/ui/nav.ts:31`, `:25-54`.
+
+### 2026-08-30 — [Context] `g e` is now taken by the Eval Dashboard; the free g-chords are down to a handful
+
+Third deliberate edit to vendored `nav.ts`, after Conventions (2026-07-20) and
+Project Context (2026-08-28). `e` went to the Eval Dashboard as the only clean
+mnemonic left for it. Taken now: `p` `s` `a` `c` `x` `e` and `,` in NAV, plus the
+bare `a` / `d` Findings keys and `j` / `k` navigation. Remember it is a two-place
+edit — the `NAV` item AND the `SHORTCUTS` row, or the `?` overlay silently omits
+the chord. Evidence: `client/src/vendor/ui/nav.ts` (`NAV` eval item, `SHORTCUTS`
+`g e` row).
 
 ## Tool & Library Notes
 

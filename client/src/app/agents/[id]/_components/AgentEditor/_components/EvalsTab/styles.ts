@@ -1,0 +1,73 @@
+import type { CSSProperties } from "react";
+
+/** Co-located styles for the Agent editor's Evals tab. */
+export const s = {
+  wrap: { maxWidth: 940 } satisfies CSSProperties,
+  headRow: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 4,
+  } satisfies CSSProperties,
+  h2: { fontSize: 16, fontWeight: 700, margin: 0 } satisfies CSSProperties,
+  subtitle: {
+    fontSize: 13,
+    color: "var(--text-secondary)",
+    marginBottom: 18,
+    maxWidth: 720,
+    lineHeight: 1.5,
+  } satisfies CSSProperties,
+  link: {
+    fontSize: 12.5,
+    color: "var(--accent)",
+    background: "none",
+    border: "none",
+    cursor: "pointer",
+    padding: 0,
+    fontFamily: "inherit",
+  } satisfies CSSProperties,
+  tiles: { display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 20 } satisfies CSSProperties,
+  casesHead: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 12,
+  } satisfies CSSProperties,
+  casesTitle: { fontSize: 14.5, fontWeight: 700 } satisfies CSSProperties,
+  spacer: { flex: 1 } satisfies CSSProperties,
+  caseRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    border: "1px solid var(--border)",
+    borderRadius: 8,
+    background: "var(--bg-elevated)",
+    padding: "12px 14px",
+    marginBottom: 8,
+  } satisfies CSSProperties,
+  caseMain: { flex: 1, minWidth: 0 } satisfies CSSProperties,
+  caseName: {
+    fontSize: 13.5,
+    fontWeight: 600,
+    fontFamily: "var(--font-mono, ui-monospace), monospace",
+  } satisfies CSSProperties,
+  caseMeta: {
+    fontSize: 12,
+    color: "var(--text-muted)",
+    marginTop: 3,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  } satisfies CSSProperties,
+  note: { fontSize: 12.5, color: "var(--text-muted)" } satisfies CSSProperties,
+  banner: {
+    border: "1px solid var(--warn, #b78103)",
+    borderRadius: 8,
+    background: "color-mix(in srgb, var(--warn, #b78103) 10%, transparent)",
+    padding: "10px 14px",
+    fontSize: 12.5,
+    marginBottom: 14,
+    lineHeight: 1.5,
+  } satisfies CSSProperties,
+} as const;

@@ -28,7 +28,17 @@
       "cost": "Cost"
     },
     "pass": "pass",
-    "fail": "fail"
+    "fail": "fail",
+    "subtitle": "Regression harness across all reviewer agents · pick an agent to see its runs",
+    "agentsHeading": "AGENTS",
+    "recentAll": "RECENT EVAL RUNS · ALL AGENTS",
+    "noAgents": "No agents yet. Create one to start measuring it.",
+    "noCases": "no eval cases",
+    "casesCount": "{count, plural, one {# case} other {# cases}}",
+    "lastRun": "Last run v{version} · {when} · {passed}/{total} pass",
+    "neverRun": "Never run",
+    "loadError": "Could not load the eval dashboard.",
+    "noEvidence": "no evidence"
   },
   "caseEditor": {
     "newCase": "New eval case",
@@ -71,7 +81,15 @@
     "run": "Run",
     "running": "Running…",
     "edit": "Edit",
-    "delete": "Delete"
+    "delete": "Delete",
+    "loadError": "Could not load this agent’s eval cases.",
+    "noData": "—",
+    "viewDashboard": "View full dashboard →",
+    "tracesPassed": "TRACES PASSED",
+    "runAll": "Run all evals ({count})",
+    "passSummary": "{passed} / {total} passing",
+    "runFinished": "Run finished — {passed} of {total} cases passed.",
+    "emptyTitle": "No eval cases yet"
   },
   "page": {
     "crumbSkillsLab": "Skills Lab",
@@ -80,5 +98,41 @@
     "crumbEvals": "Evals",
     "crumbNewCase": "New case",
     "crumbEvalCase": "Eval case"
+  },
+  "expectation": {
+    "must_find": "must find",
+    "must_not_flag": "must not flag",
+    "must_findHelp": "Built from a finding you accepted — the agent must still report it here.",
+    "must_not_flagHelp": "Built from a finding you dismissed — the agent must not report it here again."
+  },
+  "agentPage": {
+    "back": "All agents",
+    "subtitle": "Regression harness · {runs, plural, one {# run} other {# runs}} on a {cases}-case gold set",
+    "runEval": "Run eval",
+    "running": "Running…",
+    "recentRuns": "RECENT RUNS",
+    "selected": "{count} selected",
+    "compare": "Compare",
+    "compareHint": "Select two runs to compare them.",
+    "version": "v{version}",
+    "noRuns": "No runs yet. Open the agent’s Evals tab and run its cases.",
+    "loadError": "Could not load this agent’s eval runs."
+  },
+  "compare": {
+    "title": "Compare runs · v{a} → v{b}",
+    "subtitle": "Metric deltas and definition diff over the shared case set",
+    "recall": "RECALL",
+    "precision": "PRECISION",
+    "citation": "CITATION",
+    "cost": "COST",
+    "promptDiff": "SYSTEM PROMPT DIFF",
+    "oldLabel": "v{version} (old)",
+    "newLabel": "v{version} (new)",
+    "close": "Close",
+    "mismatchWarning": "These two runs did not execute the same set of eval cases. The differences below are not attributable to the change in the agent — re-run both on the current set to compare them.",
+    "skillsChanged": "The linked skills also changed between these runs, so a metric movement may come from a skill edit rather than the prompt.",
+    "skillsHeading": "LINKED SKILLS",
+    "noSkills": "none",
+    "pts": "{value}pts"
   }
 }

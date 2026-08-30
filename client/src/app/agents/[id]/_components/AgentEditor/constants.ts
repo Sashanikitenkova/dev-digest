@@ -7,7 +7,7 @@ export interface EditorTab {
   icon: IconName;
 }
 
-/** Editor tabs. Evals/Stats/CI are still deferred to later lessons. */
+/** Editor tabs. Stats/CI are still deferred to later lessons. */
 export const TABS: readonly EditorTab[] = [
   { key: "config", labelKey: "editor.tabs.config", icon: "Settings" },
   { key: "skills", labelKey: "editor.tabs.skills", icon: "Sparkles" },
@@ -15,6 +15,9 @@ export const TABS: readonly EditorTab[] = [
   // skills as well as attaching its own — the order reads the way the prompt
   // is assembled.
   { key: "context", labelKey: "editor.tabs.context", icon: "FileText" },
+  // Evals last: it measures the three tabs before it, so the order reads
+  // "configure the agent → then check what that configuration scores".
+  { key: "evals", labelKey: "editor.tabs.evals", icon: "FlaskConical" },
 ];
 
 /**

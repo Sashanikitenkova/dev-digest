@@ -1,6 +1,6 @@
 /* AgentEditor — agent config editor (model + system prompt) plus the Skills
    tab, which manages this agent's skill links and their prompt-block order.
-   Evals/Stats/CI tabs are still deferred. Tab state lives in ?tab=. */
+   Stats/CI tabs are still deferred. Tab state lives in ?tab=. */
 "use client";
 
 import React from "react";
@@ -10,6 +10,7 @@ import type { Agent } from "@devdigest/shared";
 import { ConfigTab } from "./_components/ConfigTab";
 import { SkillsTab } from "./_components/SkillsTab";
 import { ContextTab } from "./_components/ContextTab";
+import { EvalsTab } from "./_components/EvalsTab";
 import { TABS } from "./constants";
 import { s } from "./styles";
 
@@ -26,6 +27,8 @@ export function AgentEditor({ agent, tab, onTab }: { agent: Agent; tab: string; 
           <SkillsTab agent={agent} />
         ) : tab === "context" ? (
           <ContextTab agent={agent} />
+        ) : tab === "evals" ? (
+          <EvalsTab agent={agent} />
         ) : (
           <ConfigTab agent={agent} />
         )}

@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { createDb, type Db } from './client.js';
 import * as t from './schema.js';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 import {
   GENERAL_REVIEWER_PROMPT,
   SECURITY_REVIEWER_PROMPT,
@@ -33,6 +33,216 @@ const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash';
  * Course lessons populate the other tables (conventions, memory, eval, …) once
  * their features are built — they start empty here.
  */
+
+/**
+ * Unified-diff hunks for the demo PR, keyed by path.
+ *
+ * These exist so the starter has a REAL diff without a clone on disk: with no
+ * `pr_files.patch`, `diffFromPrFiles` reconstructs nothing, the grounding gate
+ * drops every finding, and an eval case has no code to assert against. The line
+ * numbers the seeded findings below cite all fall inside these hunks.
+ */
+export const DEMO_PATCHES: Record<string, string> = {
+  'src/config.ts': `@@ -10,3 +10,7 @@ export const config = {
+   port: Number(process.env.PORT ?? 3000),
++  stripeKey: "sk_live_51H8xq2Ka9Vn3PqLm7Rd0bZ4Xc",
++  webhookForwardUrl: process.env.WEBHOOK_FORWARD_URL ?? "",
++  rateLimitMax: 100,
++  rateLimitWindowMs: 60_000,
+   redisUrl: process.env.REDIS_URL,
+ };`,
+
+  'src/middleware/ratelimit.ts': `@@ -40,2 +40,13 @@ export function rateLimit(opts: Options) {
+   const buckets = new Map<string, Bucket>();
++  return async function middleware(req, res, next) {
++    const key = req.ip;
++    const bucket = buckets.get(key) ?? { tokens: opts.max, ts: Date.now() };
++    if (bucket.tokens <= 0) {
++      res.status(429).json({ error: "rate_limited" });
++      return;
++    }
++    bucket.tokens -= 1;
++    buckets.set(key, bucket);
++    next();
++  };
+ }`,
+
+  'src/api/public/webhooks.ts': `@@ -58,1 +58,13 @@ router.post("/webhooks/forward", async (req, res) => {
+   const payload = req.body;
++  const target = req.body.forward_to ?? config.webhookForwardUrl;
++  // forwards wherever the caller asks — no allowlist
++  const upstream = await fetch(target, {
++    method: "POST",
++    headers: { "content-type": "application/json" },
++    body: JSON.stringify(payload),
++  });
++  if (!upstream.ok) {
++    logger.warn({ target, status: upstream.status }, "forward failed");
++  }
++  res.json({ forwarded: true });
++});`,
+
+  'src/api/users.ts': `@@ -42,1 +42,8 @@ router.get("/users", async (req, res) => {
+   const users = await db.select().from(usersTable);
++  const enriched = [];
++  for (const u of users) {
++    const org = await db.select().from(orgs).where(eq(orgs.id, u.orgId));
++    enriched.push({ ...u, org: org[0] });
++  }
++  res.json(enriched);
++});`,
+};
+
+/**
+ * The demo review's findings, each carrying the decision an author would have
+ * made. These decisions ARE the eval dataset: an accepted finding becomes a
+ * `must_find` case, a dismissed one a `must_not_flag` case, so the L06 eval set
+ * can be built by clicking rather than by inventing test scenarios.
+ *
+ * Six accepted + four dismissed clears the "at least 8 cases" bar with room to
+ * leave a couple out. Every `line` falls inside a hunk in DEMO_PATCHES above —
+ * a finding that fails the grounding gate would never reach the eval set.
+ */
+export const DEMO_FINDINGS: Array<{
+  file: string;
+  startLine: number;
+  endLine: number;
+  severity: string;
+  category: string;
+  title: string;
+  rationale: string;
+  suggestion: string | null;
+  confidence: number;
+  decision: 'accepted' | 'dismissed';
+}> = [
+  {
+    file: 'src/config.ts',
+    startLine: 11,
+    endLine: 11,
+    severity: 'CRITICAL',
+    category: 'security',
+    title: 'Hardcoded Stripe secret key in commit',
+    rationale:
+      'Line 11 contains a literal string starting with `sk_live_`, which appears to be a Stripe **secret key**. Committing this exposes it to anyone with read access to the repo — including via git history after a later removal.',
+    suggestion:
+      'Move the key to an environment variable and reference it via `process.env.STRIPE_SECRET_KEY`. **Rotate the key immediately** — assume it is already compromised.',
+    confidence: 0.98,
+    decision: 'accepted',
+  },
+  {
+    file: 'src/config.ts',
+    startLine: 13,
+    endLine: 13,
+    severity: 'SUGGESTION',
+    category: 'style',
+    title: 'Magic number for the rate-limit ceiling',
+    rationale: 'The literal `100` would read better as a named constant.',
+    suggestion: 'Extract `DEFAULT_RATE_LIMIT_MAX`.',
+    confidence: 0.44,
+    decision: 'dismissed',
+  },
+  {
+    file: 'src/middleware/ratelimit.ts',
+    startLine: 45,
+    endLine: 45,
+    severity: 'WARNING',
+    category: 'bug',
+    title: 'Retry-After header omitted on 429',
+    rationale:
+      'The 429 response carries no `Retry-After`, so a well-behaved client cannot tell when to retry and will hammer the endpoint.',
+    suggestion: 'Set `Retry-After` to the remaining window in seconds.',
+    confidence: 0.81,
+    decision: 'accepted',
+  },
+  {
+    file: 'src/middleware/ratelimit.ts',
+    startLine: 49,
+    endLine: 49,
+    severity: 'WARNING',
+    category: 'perf',
+    title: 'Rate-limit buckets never expire',
+    rationale:
+      'Entries are added to `buckets` per client IP and never evicted, so memory grows without bound under real traffic.',
+    suggestion: 'Evict entries older than the window, or use an LRU with a fixed cap.',
+    confidence: 0.87,
+    decision: 'accepted',
+  },
+  {
+    file: 'src/middleware/ratelimit.ts',
+    startLine: 43,
+    endLine: 43,
+    severity: 'SUGGESTION',
+    category: 'style',
+    title: 'Inline default bucket could be extracted',
+    rationale: 'The inline `{ tokens, ts }` default could be a small factory.',
+    suggestion: 'Extract `newBucket(opts)`.',
+    confidence: 0.38,
+    decision: 'dismissed',
+  },
+  {
+    file: 'src/api/public/webhooks.ts',
+    startLine: 59,
+    endLine: 64,
+    severity: 'CRITICAL',
+    category: 'security',
+    title: 'Lethal trifecta: untrusted input reaches an exfil path',
+    rationale:
+      'The forward target is taken from the request body and the full payload is POSTed to it. Untrusted input, private data and an outbound channel meet in one handler.',
+    suggestion: 'Resolve the target from server-side configuration only.',
+    confidence: 0.79,
+    decision: 'accepted',
+  },
+  {
+    file: 'src/api/public/webhooks.ts',
+    startLine: 61,
+    endLine: 61,
+    severity: 'CRITICAL',
+    category: 'security',
+    title: 'SSRF: forward target has no allowlist',
+    rationale:
+      '`fetch(target)` accepts any caller-supplied URL, including `http://169.254.169.254/` and other internal addresses.',
+    suggestion: 'Validate the target against an allowlist of known hosts before fetching.',
+    confidence: 0.9,
+    decision: 'accepted',
+  },
+  {
+    file: 'src/api/public/webhooks.ts',
+    startLine: 67,
+    endLine: 67,
+    severity: 'WARNING',
+    category: 'bug',
+    title: 'Missing await on logger.warn',
+    rationale: 'The logger call may return a promise that is never awaited.',
+    suggestion: 'Await the logger call.',
+    confidence: 0.41,
+    decision: 'dismissed',
+  },
+  {
+    file: 'src/api/users.ts',
+    startLine: 44,
+    endLine: 46,
+    severity: 'WARNING',
+    category: 'perf',
+    title: 'N+1 query in user list endpoint',
+    rationale:
+      'The loop issues one org lookup per user, so the endpoint runs N+1 queries and degrades linearly with the user count.',
+    suggestion: 'Fetch the orgs in a single `IN` query and group them in memory.',
+    confidence: 0.86,
+    decision: 'accepted',
+  },
+  {
+    file: 'src/api/users.ts',
+    startLine: 43,
+    endLine: 43,
+    severity: 'SUGGESTION',
+    category: 'style',
+    title: 'Prefer a typed array over an untyped literal',
+    rationale: '`const enriched = []` is implicitly `any[]`.',
+    suggestion: 'Annotate the array element type.',
+    confidence: 0.35,
+    decision: 'dismissed',
+  },
+];
 
 export const DEFAULT_WORKSPACE_NAME = 'default';
 export const SYSTEM_USER_EMAIL = 'you@local';
@@ -125,12 +335,39 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
       })
       .returning();
 
-    // pr_files (subset)
+    // pr_files (subset). `patch` matters: with no clone on disk the reviewer
+    // reconstructs the diff from these hunks (`diffFromPrFiles`), and without
+    // them every finding fails the grounding gate and no eval case can cite a
+    // real line.
     await db.insert(t.prFiles).values([
-      { prId: pr!.id, path: 'src/middleware/ratelimit.ts', additions: 84, deletions: 0 },
-      { prId: pr!.id, path: 'src/api/public/webhooks.ts', additions: 31, deletions: 6 },
-      { prId: pr!.id, path: 'src/config.ts', additions: 4, deletions: 0 },
-      { prId: pr!.id, path: 'src/api/users.ts', additions: 7, deletions: 2 },
+      {
+        prId: pr!.id,
+        path: 'src/middleware/ratelimit.ts',
+        additions: 11,
+        deletions: 0,
+        patch: DEMO_PATCHES['src/middleware/ratelimit.ts'],
+      },
+      {
+        prId: pr!.id,
+        path: 'src/api/public/webhooks.ts',
+        additions: 12,
+        deletions: 0,
+        patch: DEMO_PATCHES['src/api/public/webhooks.ts'],
+      },
+      {
+        prId: pr!.id,
+        path: 'src/config.ts',
+        additions: 4,
+        deletions: 0,
+        patch: DEMO_PATCHES['src/config.ts'],
+      },
+      {
+        prId: pr!.id,
+        path: 'src/api/users.ts',
+        additions: 6,
+        deletions: 0,
+        patch: DEMO_PATCHES['src/api/users.ts'],
+      },
     ]);
 
     // pr_commits
@@ -141,47 +378,6 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
       author: 'marisa.koch',
     });
 
-    // a sample review + findings so the PR shows results before the first run
-    const [review] = await db
-      .insert(t.reviews)
-      .values({
-        workspaceId,
-        prId: pr!.id,
-        kind: 'review',
-        verdict: 'request_changes',
-        summary:
-          'Solid middleware approach, but a Stripe secret key is committed in plaintext and the user-list endpoint introduces an N+1 query under the new limiter.',
-        score: 61,
-        model: 'seed',
-      })
-      .returning();
-
-    await db.insert(t.findings).values([
-      {
-        reviewId: review!.id,
-        file: 'src/config.ts',
-        startLine: 12,
-        endLine: 12,
-        severity: 'CRITICAL',
-        category: 'security',
-        title: 'Hardcoded Stripe secret key in commit',
-        rationale: 'Line 12 contains a literal `sk_live_` Stripe secret key.',
-        suggestion: 'Move to env var and rotate the key immediately.',
-        confidence: 0.98,
-      },
-      {
-        reviewId: review!.id,
-        file: 'src/api/users.ts',
-        startLine: 45,
-        endLine: 52,
-        severity: 'WARNING',
-        category: 'perf',
-        title: 'N+1 query in user list endpoint',
-        rationale: 'Loop issues one query per user → N+1.',
-        suggestion: 'Use a single IN query and group in memory.',
-        confidence: 0.86,
-      },
-    ]);
   }
 
   // ---- built-in agents (the starter presets) ----
@@ -358,6 +554,84 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
       .insert(t.agentSkills)
       .values({ agentId, skillId, order: link.order, enabled: true })
       .onConflictDoNothing();
+  }
+
+  // ---- demo review + decided findings (the eval dataset) -------------------
+  // OUTSIDE the `if (!pr)` guard on purpose: that block is skipped on a re-seed
+  // once PR #482 exists, so anything nested in it never lands on an existing DB
+  // (server/INSIGHTS.md, 2026-06-27). This section is idempotent on its own.
+  //
+  // The review is attributed to the Security Reviewer rather than left with a
+  // null `agent_id`: an eval case belongs to the agent that produced the
+  // finding, so an unattributed review cannot seed one at all.
+  const securityAgentId = agentIdByName.get('Security Reviewer') ?? null;
+
+  // Backfill patches on a database seeded before they existed.
+  for (const [path, patch] of Object.entries(DEMO_PATCHES)) {
+    await db
+      .update(t.prFiles)
+      .set({ patch })
+      .where(and(eq(t.prFiles.prId, pr!.id), eq(t.prFiles.path, path), isNull(t.prFiles.patch)));
+  }
+
+  let [demoReview] = await db
+    .select()
+    .from(t.reviews)
+    .where(and(eq(t.reviews.prId, pr!.id), eq(t.reviews.model, 'seed')));
+  if (!demoReview) {
+    [demoReview] = await db
+      .insert(t.reviews)
+      .values({
+        workspaceId,
+        prId: pr!.id,
+        agentId: securityAgentId,
+        kind: 'review',
+        verdict: 'request_changes',
+        summary:
+          'Two critical exposures — a committed live Stripe key and an SSRF-shaped webhook forwarder — plus an unbounded limiter cache and an N+1 in the user list. Block before merge.',
+        score: 38,
+        model: 'seed',
+      })
+      .returning();
+  } else if (!demoReview.agentId && securityAgentId) {
+    // Pre-existing seeded review from before this section owned attribution.
+    await db
+      .update(t.reviews)
+      .set({ agentId: securityAgentId })
+      .where(eq(t.reviews.id, demoReview.id));
+  }
+
+  // Top up by TITLE rather than skipping when any finding exists. A database
+  // seeded before this section carries the original two undecided findings, so
+  // an "insert only when empty" guard would leave it permanently short of the
+  // decided findings the eval set is built from — and the demo would silently
+  // have nothing to click.
+  const existing = await db
+    .select({ title: t.findings.title })
+    .from(t.findings)
+    .where(eq(t.findings.reviewId, demoReview!.id));
+  const seenTitles = new Set(existing.map((f) => f.title));
+  const missing = DEMO_FINDINGS.filter((f) => !seenTitles.has(f.title));
+  if (missing.length > 0) {
+    const decidedAt = new Date();
+    await db.insert(t.findings).values(
+      missing.map((f) => ({
+        reviewId: demoReview!.id,
+        file: f.file,
+        startLine: f.startLine,
+        endLine: f.endLine,
+        severity: f.severity,
+        category: f.category,
+        title: f.title,
+        rationale: f.rationale,
+        suggestion: f.suggestion,
+        confidence: f.confidence,
+        // Pre-decided so the eval set can be built by clicking "Turn into eval
+        // case" straight away, without re-triaging the demo PR by hand.
+        acceptedAt: f.decision === 'accepted' ? decidedAt : null,
+        dismissedAt: f.decision === 'dismissed' ? decidedAt : null,
+      })),
+    );
   }
 
   return { workspaceId, userId };
