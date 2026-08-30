@@ -384,3 +384,45 @@ jobs:
           path: evals/results/
           if-no-files-found: ignore
           retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # gate — the ONE stable check to mark required in branch protection.
+  #
+  # The blocking jobs above cannot be required directly: `skills` and `agents` are
+  # matrices, so their check names are dynamic (skill:dependency-checker, …). A PR
+  # touching a different skill never produces that name, and a required check that
+  # never runs stays "expected — waiting" and blocks the PR forever. This job has a
+  # fixed name and aggregates their results instead.
+  #
+  # `skipped` counts as a pass: it means the tier had nothing to check on this PR.
+  # `failure` and `cancelled` do not. The advisory `workflow` job is deliberately
+  # NOT in `needs` — it must never affect the merge decision.
+  # ---------------------------------------------------------------------------
+  gate:
+    name: evals gate
+    needs: [detect, quality, skills, agents]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: aggregate blocking tiers
+        run: |
+          bad=0
+          check() {
+            case "$2" in
+              success|skipped) printf '  %-22s %s\n' "$1" "$2" ;;
+              *)               printf '  %-22s %s  <-- BLOCKING\n' "$1" "$2"; bad=1 ;;
+            esac
+          }
+          echo "Blocking eval tiers:"
+          check detect  "${{ needs.detect.result }}"
+          check quality "${{ needs.quality.result }}"
+          check skills  "${{ needs.skills.result }}"
+          check agents  "${{ needs.agents.result }}"
+          echo
+          if [ "$bad" -eq 1 ]; then
+            echo "## Evals gate — FAILED" >> "$GITHUB_STEP_SUMMARY"
+            echo "One or more blocking eval tiers did not pass. See the failing job above." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "## Evals gate — passed" >> "$GITHUB_STEP_SUMMARY"
+          echo "All blocking eval tiers passed or had nothing to check." >> "$GITHUB_STEP_SUMMARY"
