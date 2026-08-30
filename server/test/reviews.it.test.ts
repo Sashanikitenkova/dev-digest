@@ -110,6 +110,13 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
     await pg?.stop();
   });
 
+  /**
+   * A review run now makes TWO provider calls: the `review_intent` classifier
+   * (registry default: openrouter) and then the agent's own model. Both must be
+   * injected — an un-injected provider falls through to `LocalSecretsProvider`,
+   * and on a machine that HAS that key the container hands back a real client
+   * and the test quietly hits the network.
+   */
   function appWith(structured: unknown, provider: 'openai' | 'anthropic' = 'openai') {
     return buildApp({
       config: config(),
@@ -119,6 +126,14 @@ d('A2 reviews + agents (Testcontainers pg)', () => {
         git: new MockGitClient({ diff: DIFF }),
         llm: {
           [provider]: new MockLLMProvider(provider, { structured }),
+          openrouter: new MockLLMProvider('openai', {
+            structured: {
+              intent: 'Add rate limiting to the public API endpoints.',
+              in_scope: ['rate limiting middleware'],
+              out_of_scope: [],
+              confidence: 0.8,
+            },
+          }) as never,
         },
       },
     });

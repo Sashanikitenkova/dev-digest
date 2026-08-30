@@ -59,6 +59,14 @@ export const Finding = z.object({
   // Lethal-trifecta variant fields (present only when kind === 'lethal_trifecta')
   trifecta_components: z.array(TrifectaComponent).nullish(),
   evidence: z.array(TrifectaEvidence).nullish(),
+  /**
+   * Set by the deterministic scope filter when the finding falls outside the
+   * PR's stated scope. Demotion only — such a finding is never dropped, and
+   * CRITICAL / security / bug findings are never tagged at all.
+   */
+  out_of_scope: z.boolean().nullish(),
+  /** Human-readable record of what the scope filter did and why. */
+  scope_note: z.string().nullish(),
 });
 export type Finding = z.infer<typeof Finding>;
 

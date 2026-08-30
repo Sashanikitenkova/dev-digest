@@ -1,25 +1,32 @@
 /* CodeLine — one rendered diff line: gutter number, +/- sign, text, plus the
-   hover "+" affordance, any anchored comment threads, and an inline composer. */
+   hover "+" affordance, any anchored comment threads, and an inline composer.
+   In Smart Diff a line can also carry review findings, which tint its rail and
+   add a severity tag at the right edge. */
 "use client";
 
 import React from "react";
+import type { FindingRecord } from "@devdigest/shared";
+import { Icon, SEV, type Severity } from "@devdigest/ui";
 import { commentTargetFor, type CommentThread, type DiffCommentApi, cs } from "../comments";
+import { fs, SEVERITY_LABEL, SEVERITY_RANK, worstSeverity } from "../findings";
 import { type Line } from "../helpers";
 import { s, lineRowFor, lineSignFor } from "../styles";
 import { CommentThreadView } from "../CommentThreadView";
 import { InlineComposer } from "../InlineComposer";
 
-export function CodeLine({
-  ln,
-  path,
-  threads,
-  commenting,
-}: {
-  ln: Line;
-  path: string;
-  threads: CommentThread[];
-  commenting?: DiffCommentApi;
-}) {
+export const CodeLine = React.forwardRef<
+  HTMLDivElement,
+  {
+    ln: Line;
+    path: string;
+    threads: CommentThread[];
+    commenting?: DiffCommentApi;
+    /** Review findings citing this line (Smart Diff only). */
+    findings?: FindingRecord[];
+    /** Makes the severity tags clickable — jumps to that finding in the Findings tab. */
+    onSelectFinding?: (id: string) => void;
+  }
+>(function CodeLine({ ln, path, threads, commenting, findings, onSelectFinding }, ref) {
   const [hover, setHover] = React.useState(false);
   const [composing, setComposing] = React.useState(false);
 
@@ -34,14 +41,17 @@ export function CodeLine({
   const sign = ln.kind === "add" ? "+" : ln.kind === "del" ? "−" : "";
   const target = commenting?.canComment ? commentTargetFor(ln) : null;
   const showAdd = hover && !!target && !composing;
+  const flagged = findings && findings.length > 0 ? worstSeverity(findings) : null;
 
   return (
     <div
-      style={cs.rowWrap}
+      ref={ref}
+      // Scrolled-to lines must clear the sticky PR header, not hide under it.
+      style={{ ...cs.rowWrap, scrollMarginTop: 96 }}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
     >
-      <div style={lineRowFor(ln.kind)}>
+      <div style={{ ...lineRowFor(ln.kind), ...(flagged ? fs.flaggedRow(flagged) : null) }}>
         <span className="mono tnum" style={{ ...s.lineNo, position: "relative" }}>
           {showAdd && target && (
             <button
@@ -62,6 +72,7 @@ export function CodeLine({
         <span className="mono" style={s.lineText}>
           {ln.text || " "}
         </span>
+        {flagged && <SeverityTag findings={findings!} onSelect={onSelectFinding} />}
       </div>
 
       {commenting &&
@@ -80,5 +91,72 @@ export function CodeLine({
         />
       )}
     </div>
+  );
+});
+
+/** One tag per severity present on the line, worst first. When `onSelect` is
+    given each tag is a button that opens its finding in the Findings tab — so
+    the FIRST finding of each severity is kept, not just the severity itself. */
+function SeverityTag({
+  findings,
+  onSelect,
+}: {
+  findings: FindingRecord[];
+  onSelect?: (id: string) => void;
+}) {
+  const firstOfSeverity = new Map<Severity, FindingRecord>();
+  for (const f of findings) {
+    const sev = f.severity as Severity;
+    if (!firstOfSeverity.has(sev)) firstOfSeverity.set(sev, f);
+  }
+  const ordered = [...firstOfSeverity.entries()].sort(
+    ([a], [b]) => SEVERITY_RANK[a] - SEVERITY_RANK[b]
+  );
+  return (
+    <>
+      {ordered.map(([sev, f]) => {
+        const I = Icon[SEV[sev].icon];
+        const content = (
+          <>
+            <I size={11.5} />
+            {SEVERITY_LABEL[sev]}
+          </>
+        );
+        if (!onSelect) {
+          return (
+            <span key={sev} style={fs.lineTag(sev)} title={SEV[sev].label}>
+              {content}
+            </span>
+          );
+        }
+        return (
+          <button
+            key={sev}
+            type="button"
+            // The row has its own hover/comment affordances — a tag press must
+            // only navigate.
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect(f.id);
+            }}
+            title={SEV[sev].label}
+            aria-label={`Open finding: ${f.title}`}
+            // Reset FIRST, then the chip styles — `lineTag` owns paddingRight
+            // and the font size, and a `font`/`padding` shorthand after it
+            // would silently wipe them.
+            style={{
+              background: "none",
+              border: 0,
+              padding: 0,
+              fontFamily: "inherit",
+              cursor: "pointer",
+              ...fs.lineTag(sev),
+            }}
+          >
+            {content}
+          </button>
+        );
+      })}
+    </>
   );
 }

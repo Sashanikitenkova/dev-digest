@@ -1,9 +1,16 @@
 import type { Container } from '../../platform/container.js';
-import type { Provider, Review, RunTrace, UnifiedDiff } from '@devdigest/shared';
-import { reviewPullRequest, countBlockers } from '@devdigest/reviewer-core';
+import type { Provider, Review, RunTrace, SpecRead, UnifiedDiff } from '@devdigest/shared';
+import type { IntentForPrompt, SpecDoc } from '@devdigest/reviewer-core';
+import { reviewPullRequest, countBlockers, formatSkillBlocks } from '@devdigest/reviewer-core';
 import { RunLogger } from '../../platform/run-logger.js';
+import { approxTokens } from '../../adapters/tokenizer/index.js';
 import * as schema from '../../db/schema.js';
 import type { AgentRow } from '../../db/rows.js';
+import { IntentService } from '../intent/service.js';
+import { ContextService } from '../context/service.js';
+import { safeContextPath } from '../context/helpers.js';
+import { traceMeta } from '../intent/helpers.js';
+import type { PrIntentRow } from '../intent/repository.js';
 import type { ReviewRepository, FindingRow, PullRow, ReviewRow } from './repository.js';
 import { REVIEW_STRATEGY } from './constants.js';
 import { taskLine } from './helpers.js';
@@ -105,6 +112,20 @@ export class ReviewRunExecutor {
     }
     runLog.info(`Diff ready — ${diff.files.length} changed file(s); starting ${jobs.length} agent run(s)`);
 
+    // ---- Intent (LLM call 1 of 2) — shared pre-work, like the diff ---------
+    // ONE classification serves every agent in this round. Best-effort by
+    // contract: `ensureFresh` never throws, so a classifier outage degrades the
+    // prompt back to its pre-intent shape instead of failing the review. Its
+    // tokens/cost stay on the pr_intent row and are deliberately NOT folded into
+    // any agent_runs stats — one call must not be billed N times.
+    const intentResult = await new IntentService(this.container).ensureFresh(
+      workspaceId,
+      pull,
+      repo,
+      diff,
+      runLog,
+    );
+
     for (const { agent, runId } of jobs) {
       const agentStart = Date.now();
       logger?.info(
@@ -112,7 +133,16 @@ export class ReviewRunExecutor {
         `review: agent "${agent.name}" started (${agent.provider}/${agent.model})`,
       );
       try {
-        const outcome = await this.runOneAgent(workspaceId, pull, repo, diff, agent, runId, runLog);
+        const outcome = await this.runOneAgent(
+          workspaceId,
+          pull,
+          repo,
+          diff,
+          agent,
+          runId,
+          runLog,
+          intentResult,
+        );
         logger?.info(
           {
             runId,
@@ -144,6 +174,8 @@ export class ReviewRunExecutor {
     agent: AgentRow,
     runId: string,
     parentLog: RunLogger,
+    /** Shared intent from the round's single classifier call; undefined = none. */
+    intentResult?: { intent: IntentForPrompt; row: PrIntentRow; durationMs: number } | undefined,
   ): Promise<RunOutcome> {
     const start = Date.now();
     // Narrow the fanned-out pre-work logger to THIS run; the shared diff/intent
@@ -152,6 +184,13 @@ export class ReviewRunExecutor {
     const runLog = parentLog.forRun(runId, { agent: agent.name });
 
     runLog.info(`Starting review with agent "${agent.name}" (${agent.provider}/${agent.model})`);
+
+    // Hoisted out of the try so the failure-path trace below can report the
+    // skills that WERE assembled, instead of a hardcoded null.
+    let skillBlocks: string[] = [];
+    // Same reason: a run that fails AFTER the documents were read should still
+    // report which ones it read. Empty ledger = the failure happened first.
+    let specLedger: SpecRead[] = [];
 
     try {
       // Resolve the agent's LLM provider. (container.llm throws if the provider
@@ -184,6 +223,21 @@ export class ReviewRunExecutor {
 
       const task = taskLine(pull) + rankNote;
 
+      // Linked skills → prompt blocks. Best-effort like the other enrichments:
+      // a skills lookup failure must not fail the review.
+      skillBlocks = await this.buildSkillBlocks(agent, runLog);
+
+      // SPEC-01 — project-context documents attached to the agent and to its
+      // enabled skills, read fresh off the clone. Best-effort like every other
+      // enrichment: a lookup or read failure logs and the prompt reverts to its
+      // pre-SPEC-01 shape rather than failing the review.
+      const specDocs = await this.buildSpecDocs(agent, repo, runLog);
+      specLedger = specDocs.ledger;
+
+      // Numbered so the Live Log shows the two calls as one sequence: the cheap
+      // classifier above, the review model here.
+      runLog.tool(`LLM call 2/2 — review (${agent.provider}/${agent.model})`);
+
       // ---- Engine: assemble → single-pass → grounding -----------------------
       // The pure review pipeline lives in @devdigest/reviewer-core (shared with
       // the CI runner). The service owns only I/O: repo-intel context resolution
@@ -201,9 +255,23 @@ export class ReviewRunExecutor {
         ...(callersDigest ? { callers: callersDigest } : {}),
         // T3 — repo skeleton, same omit-when-empty contract.
         ...(repoMap ? { repoMap } : {}),
+        // Linked + enabled skills, in link order. Same omit-when-empty contract:
+        // no blocks → assembly.skills stays null → the trace drawer hides the
+        // `Skills / rules` section entirely.
+        ...(skillBlocks.length ? { skills: skillBlocks } : {}),
+        // SPEC-01 — attached project-context documents, each labelled with its
+        // own repo path. Same omit-when-empty contract: no documents → the
+        // `## Project context` section is absent and the prompt is
+        // byte-identical to a run with nothing attached.
+        ...(specDocs.docs.length ? { specs: specDocs.docs } : {}),
         // PR author's description/body — untrusted; assemblePrompt wraps +
         // truncates it. Omitted when the PR has no body.
         ...(pull.body ? { prDescription: pull.body } : {}),
+        // Derived intent — feeds BOTH the `## Intent` prompt section and the
+        // deterministic scope filter, so the two cannot disagree. Same
+        // omit-when-absent contract as callers/repoMap: no intent → the prompt
+        // is byte-identical to the pre-intent one and nothing is demoted.
+        ...(intentResult ? { intent: intentResult.intent } : {}),
         task,
         sessionId: `${repo.owner}/${repo.name}#${pull.number}:${agent.name}`,
         onEvent: (e) => runLog.event(e.kind, e.msg, e.data),
@@ -272,15 +340,36 @@ export class ReviewRunExecutor {
           grounding,
         },
         prompt_assembly: outcome.assembly,
-        tool_calls: outcome.chunks.map((c) => ({
-          tool: 'review_file',
-          args: c.label,
-          meta: outcome.mode,
-          ms: Math.round(durationMs / Math.max(outcome.chunks.length, 1)),
-        })),
+        tool_calls: [
+          // The classifier call, prepended so the trace shows TWO distinct LLM
+          // calls. `meta` carries source KINDS, confidence and a token estimate
+          // only — never the fetched content, never a secret.
+          ...(intentResult
+            ? [
+                {
+                  tool: 'classify_intent',
+                  args: `${intentResult.row.provider ?? 'unknown'}/${intentResult.row.model ?? 'unknown'}`,
+                  meta: traceMeta(intentResult.row),
+                  // 0 when this round reused a cached intent — no call was made.
+                  ms: intentResult.durationMs,
+                },
+              ]
+            : []),
+          ...outcome.chunks.map((c) => ({
+            tool: 'review_file',
+            args: c.label,
+            meta: outcome.mode,
+            ms: Math.round(durationMs / Math.max(outcome.chunks.length, 1)),
+          })),
+        ],
         raw_output: outcome.raw,
         memory_pulled: [],
-        specs_read: [],
+        // Derived from the ledger, never a literal: `specs_read` was hardcoded
+        // to `[]` for the whole life of this file, which made "no document was
+        // read" and "the feature does not exist" indistinguishable in a trace.
+        specs_read: specLedger.filter((e) => e.status === 'used').map((e) => e.path),
+        specs_detail: specLedger,
+        specs_tokens: specLedger.reduce((sum, e) => sum + e.tokens, 0),
         // Persisted log = the run's FULL event buffer (incl. shared pre-work:
         // diff load + intent), not just events recorded inside this method.
         log: runLog.logFor(runId),
@@ -310,11 +399,164 @@ export class ReviewRunExecutor {
         })
         .catch(() => undefined);
       await this.repo
-        .saveRunTrace(runId, this.traceFromBuffer(runId, pull, agent, '0/0 passed', Date.now() - start))
+        .saveRunTrace(
+          runId,
+          this.traceFromBuffer(
+            runId,
+            pull,
+            agent,
+            '0/0 passed',
+            Date.now() - start,
+            skillBlocks,
+            specLedger,
+          ),
+        )
         .catch(() => undefined);
       this.container.runBus.complete(runId);
       throw err;
     }
+  }
+
+  /**
+   * Resolve the agent's linked skills into `## Skills / rules` prompt blocks.
+   *
+   * A link contributes a block only when BOTH switches are on: the LINK's
+   * `agent_skills.enabled` (the agent editor's per-skill checkbox) and the
+   * SKILL's own `skills.enabled` (the Skills Lab toggle). Order is the link
+   * order, which is what makes drag-to-reorder change the assembled prompt.
+   *
+   * Trust: only `source: 'manual'` bodies — authored in this workspace — are
+   * passed as instructions. Imported / community / extracted bodies go through
+   * `formatSkillBlocks` as untrusted DATA (delimiter-wrapped, covered by the
+   * shared INJECTION_GUARD). The rule lives in reviewer-core so the CI runner
+   * applies the identical boundary.
+   *
+   * Returns [] on any failure — a skills lookup must never fail a review.
+   */
+  private async buildSkillBlocks(agent: AgentRow, runLog: RunLogger): Promise<string[]> {
+    let links;
+    try {
+      links = await this.agents.linkedSkills(agent.id);
+    } catch (err) {
+      runLog.info(`skills: lookup failed — ${(err as Error).message}`);
+      return [];
+    }
+
+    // linkedSkills already returns `order` ascending.
+    const active = links.filter((l) => l.enabled && l.skill.enabled);
+    if (active.length === 0) {
+      if (links.length > 0) {
+        runLog.info(`skills: 0 of ${links.length} linked skill(s) enabled — no skill blocks added`);
+      }
+      return [];
+    }
+
+    const blocks = formatSkillBlocks(
+      active.map((l) => ({
+        name: l.skill.name,
+        body: l.skill.body,
+        trusted: l.skill.source === 'manual',
+      })),
+    );
+
+    const untrusted = active.filter((l) => l.skill.source !== 'manual').length;
+    runLog.info(
+      `skills: ${active.length} of ${links.length} linked skill(s) injected — ` +
+        `${active.map((l) => l.skill.name).join(', ')}` +
+        (untrusted > 0 ? ` (${untrusted} untrusted, delimiter-wrapped)` : ''),
+    );
+    return blocks;
+  }
+
+  /**
+   * SPEC-01 — resolve the agent's project-context documents into prompt blocks,
+   * reading each one FRESH off the clone, and record what happened to every one
+   * of them.
+   *
+   * Modelled on `buildSkillBlocks`: best-effort by contract, returns an empty
+   * result on any failure, and NEVER fails a review. A document the author
+   * attached but that is missing from the clone is a reason to tell them so in
+   * the Live Log and the trace — not a reason to abandon the review.
+   *
+   * WHY THE READ IS SAFE WITHOUT A CHECKOUT (AC-16). `container.git.readFile`
+   * reads the clone's WORKING TREE, and nothing on the review path ever moves
+   * it off the default branch: `fetchPullHead` only creates a local `pr-<n>`
+   * ref, `diff()` works from `base...head` refs, and `sync()` is
+   * `reset --hard origin/<branch>`. So these documents are the repository's
+   * committed rules as of the last sync — NOT whatever the PR under review
+   * happens to say they are, which is exactly what makes them trustworthy
+   * enough to state as project context. If anyone ever introduces a
+   * `git checkout` of the PR head on this path, a PR could rewrite the rules it
+   * is judged by in the same diff, and this read must be re-pinned to the
+   * default branch explicitly.
+   *
+   * Each path is re-validated with `safeContextPath` immediately before the
+   * read even though it was validated on write. That is deliberate: the gate
+   * belongs at the dangerous operation (the intent module does the same at
+   * `service.ts:340-342`), because `SimpleGitClient.readFile` joins onto the
+   * clone directory with no containment check of its own, and a row could have
+   * been written before a future rule change.
+   *
+   * NO TRUNCATION anywhere. A document is used whole or reported missing; a
+   * silently half-read rule is worse than an absent one.
+   */
+  private async buildSpecDocs(
+    agent: AgentRow,
+    repo: typeof schema.repos.$inferSelect,
+    runLog: RunLogger,
+  ): Promise<{ docs: SpecDoc[]; ledger: SpecRead[] }> {
+    let paths: string[];
+    try {
+      paths = await new ContextService(this.container).resolveForRun(agent.id);
+    } catch (err) {
+      runLog.info(`project context: lookup failed — ${(err as Error).message}`);
+      return { docs: [], ledger: [] };
+    }
+    if (paths.length === 0) return { docs: [], ledger: [] };
+
+    const docs: SpecDoc[] = [];
+    const ledger: SpecRead[] = [];
+
+    for (const path of paths) {
+      const safe = safeContextPath(path);
+      if (!safe) {
+        ledger.push({ path, status: 'missing', reason: 'unsafe_path', tokens: 0 });
+        runLog.info(`project context: "${path}" rejected as unsafe and not read`);
+        continue;
+      }
+      let content: string;
+      try {
+        content = await this.container.git.readFile(
+          { owner: repo.owner, name: repo.name },
+          safe,
+        );
+      } catch {
+        ledger.push({ path: safe, status: 'missing', reason: 'not_in_clone', tokens: 0 });
+        runLog.info(`project context: "${safe}" is attached but not present in the clone`);
+        continue;
+      }
+      // An empty read is "no usable document", not a document that says
+      // nothing — and on some GitClient implementations it is what a clone miss
+      // looks like. Either way the model is never handed a blank file and told
+      // it is the project's rules.
+      if (content.trim().length === 0) {
+        ledger.push({ path: safe, status: 'missing', reason: 'empty_file', tokens: 0 });
+        runLog.info(`project context: "${safe}" is attached but empty in the clone`);
+        continue;
+      }
+      docs.push({ path: safe, content });
+      ledger.push({ path: safe, status: 'used', reason: null, tokens: approxTokens(content) });
+    }
+
+    const used = ledger.filter((e) => e.status === 'used');
+    const tokens = used.reduce((sum, e) => sum + e.tokens, 0);
+    const missing = ledger.length - used.length;
+    runLog.info(
+      `project context: ${used.length} of ${ledger.length} attached document(s) injected ` +
+        `(~${tokens} tokens)` +
+        (missing > 0 ? ` — ${missing} unavailable, see above` : ''),
+    );
+    return { docs, ledger };
   }
 
   /**
@@ -415,6 +657,20 @@ export class ReviewRunExecutor {
     agent: AgentRow,
     grounding: string,
     durationMs = 0,
+    /**
+     * Skill blocks resolved before the failure, if we got that far. Joined the
+     * same way `assemblePrompt` joins them, so a failed run's trace shows the
+     * same `Skills / rules` content a successful one would have. Empty → null,
+     * matching assemblePrompt's omit-when-empty contract.
+     */
+    skillBlocks: string[] = [],
+    /**
+     * The project-context read ledger, if the run got that far. Reported on the
+     * failure path for the same reason as `skillBlocks`: a run that failed in
+     * the model call still read those documents, and hiding that makes the
+     * failure harder to explain.
+     */
+    specLedger: SpecRead[] = [],
   ): RunTrace {
     return {
       config: {
@@ -426,11 +682,19 @@ export class ReviewRunExecutor {
         source: 'local',
       },
       stats: { duration_ms: durationMs, tokens_in: 0, tokens_out: 0, cost_usd: null, findings: 0, grounding },
-      prompt_assembly: { system: agent.systemPrompt, skills: null, memory: null, specs: null, user: '' },
+      prompt_assembly: {
+        system: agent.systemPrompt,
+        skills: skillBlocks.length > 0 ? skillBlocks.join('\n\n') : null,
+        memory: null,
+        specs: null,
+        user: '',
+      },
       tool_calls: [],
       raw_output: '',
       memory_pulled: [],
-      specs_read: [],
+      specs_read: specLedger.filter((e) => e.status === 'used').map((e) => e.path),
+      specs_detail: specLedger,
+      specs_tokens: specLedger.reduce((sum, e) => sum + e.tokens, 0),
       log: this.container.runBus.buffer(runId).map((e) => ({ t: e.t, kind: e.kind, msg: e.msg })),
     };
   }

@@ -7,8 +7,9 @@ import type {
   UnifiedDiff,
 } from '@devdigest/shared';
 import { Review as ReviewSchema } from '@devdigest/shared';
-import { assemblePrompt } from '../prompt.js';
+import { assemblePrompt, type IntentForPrompt, type SpecDoc } from '../prompt.js';
 import { groundFindings, groundingSummary } from '../grounding.js';
+import { applyScopeFilter, type ScopeDemotion } from '../scope.js';
 import { reduceReviews, scoreFromFindings, sliceDiff } from './reduce.js';
 
 /**
@@ -56,8 +57,13 @@ export interface ReviewInput {
   skills?: string[];
   /** Curated memory items. */
   memory?: string[];
-  /** Project-context spec chunks (untrusted; delimiter-wrapped downstream). */
-  specs?: string[];
+  /**
+   * Project-context documents attached to the agent + its enabled skills,
+   * resolved by the CALLER (reviewer-core does no I/O — the studio reads them
+   * off the clone, the runner off the filesystem). Untrusted; each is
+   * delimiter-wrapped and labelled with its own path downstream.
+   */
+  specs?: SpecDoc[];
   /**
    * Optional callers-of-changed-symbols digest (T1.3). Untrusted; rendered
    * before the diff section. Empty/undefined → section omitted.
@@ -71,6 +77,13 @@ export interface ReviewInput {
   /** PR author's description/body (untrusted; truncated + delimiter-wrapped in
       the prompt). Empty/undefined → section omitted. */
   prDescription?: string;
+  /**
+   * The PR's derived intent/scope, resolved by the CALLER (reviewer-core does
+   * no I/O). Feeds both the `## Intent` prompt section and the deterministic
+   * post-grounding scope filter, so the two can never disagree.
+   * Undefined → no `## Intent` section and no demotion.
+   */
+  intent?: IntentForPrompt;
   /** Task framing line, e.g. "Review PR #482 …". */
   task?: string;
   /** Override the structured-output retry budget. */
@@ -99,6 +112,11 @@ export interface ReviewOutcome {
   grounding: string;
   /** Findings dropped by grounding, with reasons (for logs / "never go silent"). */
   dropped: { finding: Finding; reason: string }[];
+  /**
+   * Findings the scope filter demoted/tagged. Never a removal — every entry
+   * here is still present in `review.findings`.
+   */
+  demoted: ScopeDemotion[];
   /** Which path ran. */
   mode: ReviewMode;
   /** Prompt assembly (for the run trace). Single-pass: the one call; map-reduce: the whole-diff assembly. */
@@ -135,6 +153,7 @@ export async function reviewPullRequest(input: ReviewInput): Promise<ReviewOutco
     callers: input.callers,
     repoMap: input.repoMap,
     prDescription: input.prDescription,
+    intent: input.intent,
     task: input.task,
   };
 
@@ -201,13 +220,30 @@ export async function reviewPullRequest(input: ReviewInput): Promise<ReviewOutco
   }
   emit('result', `Citation grounding: ${grounding}`);
 
-  // Score is derived from the findings that SURVIVED grounding (not the model's
-  // self-reported number, and not the pre-grounding set) so the score, the
-  // findings list, and the deterministic event always agree.
+  // Deterministic scope filter — grounding first and unconditional, then this.
+  // It demotes, never deletes: `scoped.findings.length === ground.kept.length`.
+  const scoped = applyScopeFilter(ground.kept, input.intent);
+  if (scoped.skippedLowConfidence) {
+    emit('info', 'scope: intent confidence low — no findings demoted');
+  }
+  for (const d of scoped.demoted) {
+    emit(
+      'info',
+      d.from === d.to
+        ? `scope: tagged "${d.finding.title}" out of scope (${d.reason})`
+        : `scope: demoted "${d.finding.title}" ${d.from}→${d.to} (${d.reason})`,
+    );
+  }
+
+  // Score is derived from the findings that SURVIVED grounding AND carry their
+  // post-demotion severities (not the model's self-reported number, and not the
+  // pre-grounding set) so the score, the findings list, and the deterministic
+  // events always agree.
   return {
-    review: { ...merged, findings: ground.kept, score: scoreFromFindings(ground.kept) },
+    review: { ...merged, findings: scoped.findings, score: scoreFromFindings(scoped.findings) },
     grounding,
     dropped: ground.dropped,
+    demoted: scoped.demoted,
     mode,
     assembly,
     chunks: chunks.map((c) => ({ label: c.label })),

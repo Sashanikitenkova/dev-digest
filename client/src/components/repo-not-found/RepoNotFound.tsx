@@ -6,6 +6,7 @@
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { EmptyState } from "@devdigest/ui";
+import { routes } from "@/lib/routes";
 
 /** Renders the "no repo selected" empty state. Wrap in the page's <AppShell>. */
 export function RepoNotFound() {
@@ -17,7 +18,7 @@ export function RepoNotFound() {
       title={t("repoNotFound.title")}
       body={t("repoNotFound.body")}
       cta={t("repoNotFound.cta")}
-      onCta={() => router.push("/onboarding")}
+      onCta={() => router.push(routes.onboarding())}
     />
   );
 }

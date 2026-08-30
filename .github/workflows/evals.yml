@@ -1,0 +1,433 @@
+# evals suite — the harness evals (@devdigest/evals): skills, subagents, workflow-level behavior.
+#
+# Routing is data-driven, not path-filter-driven. `detect` diffs the PR against its base and hands
+# the file list to evals/scripts/ci-detect.mjs, which maps it onto the tiers:
+#
+#   .claude/skills/<n>/** | evals/skills/<n>/**  → content tier  → job `skills`   (matrix)
+#   .claude/agents/<n>.md | evals/agents/<n>/**  → tool tier     → job `agents`    (matrix)
+#   CLAUDE.md | any agent | evals/{workflow,src} → workflow tier → job `workflow`
+#
+# A changed artifact with NO written evals is reported as SKIP (job summary + log), never a
+# failure — see the "skipped (no evals)" section the detect job writes.
+#
+# NOTE: there is deliberately no `on.pull_request.paths:` filter. A workflow that never triggers
+# leaves a required check permanently "expected — waiting", which blocks the PR forever. Instead
+# `detect` always runs (free, ~20s) and the expensive jobs guard themselves with `if:` — a job
+# skipped by `if:` counts as successful for branch protection.
+name: evals
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      content_model:
+        description: 'Content-tier model (skills + judge task). OpenRouter slug. Blank = default.'
+        required: false
+        default: ''
+      tool_model:
+        description: 'Tool-tier model (agents + workflow). OpenRouter slug. Blank = default.'
+        required: false
+        default: ''
+      judge_model:
+        description: 'LLM-judge model. OpenRouter slug. Blank = default.'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: evals-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Every model-backed job runs on OpenRouter, never on an Anthropic subscription.
+  EVAL_BACKEND: openrouter
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # detect — free, no secrets, no model. Decides what the rest of the run does,
+  # and resolves the three model knobs in ONE place (job `env:` cannot read the
+  # `env` context, so the resolution lives in outputs and is read via `needs`).
+  #
+  # Model override precedence: workflow_dispatch input > repo variable > default.
+  # Set the repo variables under Settings → Secrets and variables → Actions →
+  # Variables to change models permanently without touching this file.
+  # ---------------------------------------------------------------------------
+  detect:
+    name: detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      skills: ${{ steps.detect.outputs.skills }}
+      agents: ${{ steps.detect.outputs.agents }}
+      run_workflow: ${{ steps.detect.outputs.run_workflow }}
+      touches_skills: ${{ steps.detect.outputs.touches_skills }}
+      # Secrets are not exposed to job-level `if:`, and are never passed to fork PRs at all —
+      # so this single flag gates every paid job AND makes fork PRs skip instead of fail.
+      has_key: ${{ steps.key.outputs.present }}
+      # Content tier runs tool-free, so the cheapest capable model is enough.
+      model_content: ${{ inputs.content_model || vars.EVAL_MODEL_CONTENT || 'google/gemini-2.5-flash-lite' }}
+      # Tool tiers must actually drive Read/Grep and dispatch subagents. evals/README.md measured
+      # this: gemini-2.5-flash dispatches, deepseek-chat and gpt-4.1-mini do the work inline instead.
+      model_tool: ${{ inputs.tool_model || vars.EVAL_MODEL_TOOL || 'google/gemini-2.5-flash' }}
+      # Judge sits in a DIFFERENT family from every task model above, so a model never grades its
+      # own output. Judge replies are short strict JSON, so its output price barely registers.
+      model_judge: ${{ inputs.judge_model || vars.EVAL_JUDGE_MODEL || 'deepseek/deepseek-chat' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - id: key
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          if [ -n "$OPENROUTER_API_KEY" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::OPENROUTER_API_KEY is unavailable (not set, or this is a fork PR) — model-backed eval jobs will be skipped."
+          fi
+
+      - name: collect changed files
+        id: changed
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git diff --name-only "${{ github.event.pull_request.base.sha }}...HEAD" > changed.txt
+          else
+            # Manual run: feed the detector every harness file, so it selects everything with evals.
+            git ls-files -- CLAUDE.md .claude evals > changed.txt
+          fi
+          echo "count=$(wc -l < changed.txt | tr -d ' ')" >> "$GITHUB_OUTPUT"
+
+      - name: map changes onto eval tiers
+        id: detect
+        working-directory: evals
+        env:
+          CHANGED_FILES_PATH: ../changed.txt
+        run: |
+          # Pass 1 writes the step outputs. Pass 2 runs with GITHUB_OUTPUT unset, which makes the
+          # detector print the same key=value pairs to stdout — a stable file to parse for the
+          # summary, instead of grepping the runner's own output file.
+          CHANGED_FILES="$(cat "$CHANGED_FILES_PATH")" node scripts/ci-detect.mjs
+          CHANGED_FILES="$(cat "$CHANGED_FILES_PATH")" env -u GITHUB_OUTPUT \
+            node scripts/ci-detect.mjs > detect.env
+
+          get() { grep -m1 "^$1=" detect.env | cut -d= -f2-; }
+          SKILLS="$(get skills)"
+          AGENTS="$(get agents)"
+          RUN_WORKFLOW="$(get run_workflow)"
+          SKIPPED_SKILLS="$(get skipped_skills)"
+          SKIPPED_AGENTS="$(get skipped_agents)"
+          VARIANTS="$(get variants)"
+
+          if [ "$SKILLS" != "[]" ] || [ -n "$SKIPPED_SKILLS" ]; then
+            echo "touches_skills=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "touches_skills=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Annotations on the PR checks page (stdout, NOT the summary file).
+          for s in $SKIPPED_SKILLS; do
+            echo "::notice title=Eval skipped::skill '$s' changed but has no evals written — nothing to run"
+          done
+          for a in $SKIPPED_AGENTS; do
+            echo "::notice title=Eval skipped::agent '$a' changed but has no evals written — nothing to run"
+          done
+
+          {
+            echo "## Eval routing"
+            echo
+            echo "| tier | selection |"
+            echo "|---|---|"
+            echo "| skills (content) | \`$SKILLS\` |"
+            echo "| agents (tool) | \`$AGENTS\` |"
+            echo "| workflow | \`$RUN_WORKFLOW\` |"
+            echo
+            if [ -n "$SKIPPED_SKILLS" ] || [ -n "$SKIPPED_AGENTS" ]; then
+              echo "### Skipped — changed, but no evals written"
+              echo
+              for s in $SKIPPED_SKILLS; do
+                echo "- SKIP skill \`$s\` — expected \`evals/skills/$s/$s.eval.ts\`"
+              done
+              for a in $SKIPPED_AGENTS; do
+                echo "- SKIP agent \`$a\` — expected \`evals/agents/$a/$a.eval.ts\`"
+              done
+              echo
+              echo "_Not a failure — writing evals for these is optional._"
+              echo
+            fi
+            if [ -n "$VARIANTS" ]; then
+              echo "### Not run — experiment variants"
+              echo
+              for v in $VARIANTS; do
+                echo "- \`$v\` — eval suite exists, but no artifact under \`.claude/\`; it is a local A/B ablation for \`eval:repeat\` + \`eval:delta\`, not a CI gate"
+              done
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # quality — static SKILL.md gate: frontmatter, structure, internal links.
+  # No model, no key, no network. Cheapest real signal, so it blocks.
+  # ---------------------------------------------------------------------------
+  quality:
+    name: static skill gate
+    needs: detect
+    if: needs.detect.outputs.touches_skills == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: evals
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: evals/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm eval:quality
+
+  # ---------------------------------------------------------------------------
+  # skills — content tier. skillTask injects the SKILL.md as the system prompt and
+  # uses NO tools, so it talks to OpenRouter directly (src/runtime/run-openrouter.ts).
+  # No Docker, no proxy: this is the fast, cheap job.
+  # ---------------------------------------------------------------------------
+  skills:
+    name: skill:${{ matrix.skill }}
+    needs: detect
+    if: needs.detect.outputs.skills != '[]' && needs.detect.outputs.has_key == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        skill: ${{ fromJSON(needs.detect.outputs.skills) }}
+    defaults:
+      run:
+        working-directory: evals
+    env:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      EVAL_MODEL: ${{ needs.detect.outputs.model_content }}
+      EVAL_JUDGE_MODEL: ${{ needs.detect.outputs.model_judge }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: evals/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+
+      # Trailing slash matters: vitest filters are substring matches on the file path, so
+      # "agents/architecture-reviewer" would also pull in architecture-reviewer-lite.
+      - run: pnpm exec vitest run "skills/${{ matrix.skill }}/"
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results-skill-${{ matrix.skill }}
+          path: evals/results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # agents — tool tier. agentTask runs inside the Claude Agent SDK with the tools the
+  # subagent declares in its frontmatter, so it needs the Anthropic wire protocol and
+  # therefore the bundled LiteLLM translating proxy (evals/proxy/).
+  # ---------------------------------------------------------------------------
+  agents:
+    name: agent:${{ matrix.agent }}
+    needs: detect
+    if: needs.detect.outputs.agents != '[]' && needs.detect.outputs.has_key == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # OpenRouter throttles the tool tiers under load and a throttled run degrades to a single
+      # turn, which reads as a false failure. Keep concurrency at one agent at a time.
+      max-parallel: 1
+      matrix:
+        agent: ${{ fromJSON(needs.detect.outputs.agents) }}
+    defaults:
+      run:
+        working-directory: evals
+    env:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      OPENROUTER_BASE_URL: http://localhost:4000
+      EVAL_MODEL: ${{ needs.detect.outputs.model_tool }}
+      EVAL_JUDGE_MODEL: ${{ needs.detect.outputs.model_judge }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: evals/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+
+      # `proxy:up` starts the container and blocks until /health/liveliness answers.
+      - name: start LiteLLM proxy
+        run: pnpm proxy:up
+
+      # --retry=2: tool-tier runs on a cheap model occasionally stop early (a skeleton reply of
+      # ~90 output tokens where a real review is ~900) and OpenRouter throttles under load. Measured
+      # on this suite: one case passed 3/3 in isolation right after failing once in a full run — a
+      # 75% pass rate, inside the (20%, 80%) flaky band the engine itself defines. evals/README.md
+      # prescribes retries here. A genuine regression still fails all three attempts.
+      - run: pnpm exec vitest run --no-file-parallelism --retry=2 "agents/${{ matrix.agent }}/"
+
+      - name: proxy logs
+        if: failure()
+        run: docker compose -f proxy/docker-compose.yml logs --tail 100
+      - name: stop LiteLLM proxy
+        if: always()
+        run: pnpm proxy:down
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results-agent-${{ matrix.agent }}
+          path: evals/results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # workflow — the systemic tier: does a skill actually activate, does a subagent
+  # actually get dispatched, does CLAUDE.md change what gets read. Runs the LIVE
+  # on-disk harness (settingSources:["project"]).
+  #
+  # NON-BLOCKING on purpose. evals/README.md documents that `activation` cases are
+  # behaviour-shaped: a capable non-Anthropic model may perform the underlying action
+  # directly instead of invoking the Skill tool, which the assertion counts as a miss
+  # even though the model did the right thing. Treat this job as signal to read, not
+  # a merge gate — the result is still visible in the checks list and the artifact.
+  # ---------------------------------------------------------------------------
+  workflow:
+    name: workflow tier (advisory)
+    needs: detect
+    if: needs.detect.outputs.run_workflow == 'true' && needs.detect.outputs.has_key == 'true'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: evals
+    env:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      OPENROUTER_BASE_URL: http://localhost:4000
+      EVAL_MODEL: ${{ needs.detect.outputs.model_tool }}
+      EVAL_JUDGE_MODEL: ${{ needs.detect.outputs.model_judge }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: evals/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+
+      - name: start LiteLLM proxy
+        run: pnpm proxy:up
+
+      # Step-level id so the summary below can report the real outcome. The job carries
+      # continue-on-error, which makes the CHECK show green regardless — so the actual result has
+      # to be surfaced explicitly, or an advisory job is an ignored job.
+      - name: run workflow tier
+        id: run
+        continue-on-error: true
+        run: pnpm exec vitest run --no-file-parallelism --retry=2 "workflow/"
+
+      - name: report result
+        if: always()
+        run: |
+          if [ "${{ steps.run.outcome }}" = "success" ]; then
+            echo "## Workflow tier — PASSED" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Model: \`${{ needs.detect.outputs.model_tool }}\`" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning title=Workflow tier failed (advisory)::The systemic eval tier failed. This does NOT block the merge, but read the log before merging — see the job summary."
+            {
+              echo "## Workflow tier — FAILED (advisory, does not block merge)"
+              echo ""
+              echo "Model: \`${{ needs.detect.outputs.model_tool }}\`"
+              echo ""
+              echo "Before dismissing this, check which case failed:"
+              echo ""
+              echo "- a **\`dispatch\`** or **\`contrast\`** case failing is a real signal — the harness stopped routing to the subagent, or \`CLAUDE.md\` stopped changing what gets read."
+              echo "- an **\`activation\`** case failing is often a false negative on a non-Anthropic model: it asserts the model invokes the Skill tool, but a capable model may just perform the underlying action directly."
+              echo ""
+              echo "Full traces are in the \`eval-results-workflow\` artifact on this run."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: proxy logs
+        if: failure() || steps.run.outcome == 'failure'
+        run: docker compose -f proxy/docker-compose.yml logs --tail 100
+      - name: stop LiteLLM proxy
+        if: always()
+        run: pnpm proxy:down
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results-workflow
+          path: evals/results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # gate — the ONE stable check to mark required in branch protection.
+  #
+  # The blocking jobs above cannot be required directly: `skills` and `agents` are
+  # matrices, so their check names are dynamic (skill:dependency-checker, …). A PR
+  # touching a different skill never produces that name, and a required check that
+  # never runs stays "expected — waiting" and blocks the PR forever. This job has a
+  # fixed name and aggregates their results instead.
+  #
+  # `skipped` counts as a pass: it means the tier had nothing to check on this PR.
+  # `failure` and `cancelled` do not. The advisory `workflow` job is deliberately
+  # NOT in `needs` — it must never affect the merge decision.
+  # ---------------------------------------------------------------------------
+  gate:
+    name: evals gate
+    needs: [detect, quality, skills, agents]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: aggregate blocking tiers
+        run: |
+          bad=0
+          check() {
+            case "$2" in
+              success|skipped) printf '  %-22s %s\n' "$1" "$2" ;;
+              *)               printf '  %-22s %s  <-- BLOCKING\n' "$1" "$2"; bad=1 ;;
+            esac
+          }
+          echo "Blocking eval tiers:"
+          check detect  "${{ needs.detect.result }}"
+          check quality "${{ needs.quality.result }}"
+          check skills  "${{ needs.skills.result }}"
+          check agents  "${{ needs.agents.result }}"
+          echo
+          if [ "$bad" -eq 1 ]; then
+            echo "## Evals gate — FAILED" >> "$GITHUB_STEP_SUMMARY"
+            echo "One or more blocking eval tiers did not pass. See the failing job above." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "## Evals gate — passed" >> "$GITHUB_STEP_SUMMARY"
+          echo "All blocking eval tiers passed or had nothing to check." >> "$GITHUB_STEP_SUMMARY"

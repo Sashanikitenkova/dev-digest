@@ -2,6 +2,7 @@
   "finding": {
     "accepted": "accepted",
     "dismissed": "dismissed",
+    "outOfScope": "out of scope",
     "suggestedFix": "Suggested fix",
     "accept": "Accept",
     "dismiss": "Dismiss",
@@ -28,6 +29,7 @@
   },
   "panel": {
     "hideLowConfidence": "Hide low confidence",
+    "hideOutOfScope": "Hide {count} out of scope",
     "noMatchTitle": "No findings match",
     "noMatchBody": "Adjust the filters above, or run a review to generate findings."
   },
@@ -51,14 +53,24 @@
     "blockers": " · {count} blockers"
   },
   "smartDiff": {
-    "coreLabel": "Core",
+    "coreLabel": "Core logic",
     "wiringLabel": "Wiring",
     "boilerplateLabel": "Boilerplate",
+    "coreBlurb": "The substance of the change — review closely",
+    "wiringBlurb": "Hooks the core into the app",
+    "boilerplateBlurb": "Generated / mechanical — skim",
     "largeTitle": "This PR is large ({lines} changed lines)",
     "largeBody": "Consider splitting it into smaller, focused PRs for easier review:",
     "filesCount": "{count} files",
     "findingLines": "{count} finding-lines",
-    "groupedByRole": "Smart Diff · grouped by role"
+    "groupedByRole": "Smart Diff · grouped by role",
+    "sectionLabel": "Reviewer-ordered diff",
+    "smartOrder": "Smart order",
+    "originalOrder": "Original order",
+    "orderLabel": "Diff file order",
+    "emptyGroup": "No files in this group.",
+    "noChangedFiles": "No changed files.",
+    "diffStat": "{count} files · +{additions} −{deletions}"
   },
   "list": {
     "breadcrumb": "Pull Requests",
@@ -91,6 +103,7 @@
       "author": "Author",
       "size": "Size",
       "score": "Score",
+      "findings": "Findings",
       "status": "Status",
       "cost": "Cost",
       "updated": "Updated"

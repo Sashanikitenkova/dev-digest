@@ -15,6 +15,7 @@ aliases, not published modules):
 | `client/`        | `@devdigest/web`            | Next.js 15 web app (the studio)                       | 3000 |
 | `reviewer-core/` | `@devdigest/reviewer-core`  | Pure review engine: diff → prompt → LLM → findings    | —    |
 | `e2e/`           | `@devdigest/e2e`            | Deterministic browser e2e (agent-browser)             | —    |
+| `mcp/`           | `@devdigest/mcp`            | Local stdio MCP server exposing DevDigest to agents   | —    |
 | `server/src/vendor/shared` | `@devdigest/shared` | Zod contracts shared across every package             | —    |
 
 `repo-intel` (the codebase indexer that powers the **Indexed** badge and feeds
@@ -61,7 +62,8 @@ Each package has its own README with deeper diagrams:
 [`client`](client/README.md) (UI route map) ·
 [`server`](server/README.md) (API map) ·
 [`reviewer-core`](reviewer-core/README.md) (review pipeline) ·
-[`e2e`](e2e/README.md).
+[`e2e`](e2e/README.md) ·
+[`mcp`](mcp/README.md) (tool surface).
 
 ## What works on day 1
 
@@ -70,7 +72,8 @@ Each package has its own README with deeper diagrams:
 - **Add repository** — paste a repo URL; the server clones and indexes it.
 - **Import pull requests** — pull open PRs and their diff, commits, body, and linked issue.
 - **View diff** — GitHub-like diff in the browser.
-- **Agents** — two built-in reviewers (General + Security); create/edit your own (model + system prompt).
+- **Agents** — built-in reviewers (General, Security, Test Quality, API Contract); create/edit your own (model + system prompt).
+- **Skills** — reusable markdown prompt blocks, linked to agents in a chosen order, versioned on every body change. Imported skills are stored as untrusted data and wrapped in `<untrusted>` delimiters before they reach the model.
 - **Run a review** — single-pass analysis returning structured findings (severity + score), with the grounding gate and repo-map context working from the start.
 
 ## What you build in the course
@@ -144,6 +147,7 @@ path filter — full strategy in **[`TESTING.md`](TESTING.md)**.
 | server integration (real Postgres) | `server-integration.yml` | yes |
 | reviewer-core (engine) | `reviewer-core.yml` | no |
 | web e2e (agent-browser, real stack) | `e2e-web.yml` | yes |
+| mcp (stdio MCP server) | `mcp.yml` | no |
 
 Server tests split by filename: `*.it.test.ts` are DB-backed (testcontainers
 Postgres); everything else is hermetic. The browser e2e flows live in

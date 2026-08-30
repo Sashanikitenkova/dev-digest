@@ -4,6 +4,7 @@ import type {
   RunLogLine,
   RunStats,
   RunTrace,
+  SpecRead,
   ToolCall,
 } from '@devdigest/shared';
 import { RunTrace as RunTraceSchema } from '@devdigest/shared';
@@ -30,7 +31,20 @@ export interface BuildTraceInput {
   toolCalls: ToolCall[];
   rawOutput: string;
   memoryPulled: MemoryPulled[];
+  /** Paths of the project-context documents that were USED (SPEC-01). */
   specsRead: string[];
+  /**
+   * The full read ledger, misses included. Optional so the pre-SPEC-01 callers
+   * of this builder keep compiling; omitted → the key is null in the trace and
+   * the drawer falls back to `specsRead` alone.
+   *
+   * NOTE: the studio review path does NOT come through here — `ReviewRunExecutor`
+   * hand-builds its RunTrace literals. This keeps the A5 / CI builder in step
+   * with the contract; it is not what wires the studio trace.
+   */
+  specsDetail?: SpecRead[];
+  /** Approximate total tokens contributed by the used documents. */
+  specsTokens?: number;
   log: RunLogLine[];
 }
 
@@ -50,6 +64,8 @@ export function buildRunTrace(input: BuildTraceInput): RunTrace {
     raw_output: input.rawOutput,
     memory_pulled: input.memoryPulled,
     specs_read: input.specsRead,
+    specs_detail: input.specsDetail ?? null,
+    specs_tokens: input.specsTokens ?? null,
     log: input.log,
   };
   // Validate so a malformed trace fails loudly at write-time, not read-time.

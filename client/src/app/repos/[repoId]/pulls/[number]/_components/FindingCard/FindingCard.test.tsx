@@ -49,6 +49,25 @@ describe("FindingCard (smoke, both themes)", () => {
     });
   });
 
+  it("expands and scrolls itself when it is the deep-link target", () => {
+    // jsdom has no scrollIntoView; the call is what we assert on.
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+
+    renderWithIntl(<FindingCard f={FINDING} isTarget onAction={() => {}} />);
+
+    // Body content is only in the DOM while expanded.
+    expect(screen.getByText("Move the key to an environment variable.")).toBeInTheDocument();
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "center" });
+  });
+
+  it("stays collapsed when it is not the target", () => {
+    renderWithIntl(<FindingCard f={FINDING} onAction={() => {}} />);
+    expect(
+      screen.queryByText("Move the key to an environment variable."),
+    ).not.toBeInTheDocument();
+  });
+
   it("fires accept/dismiss actions", () => {
     const onAction = vi.fn();
     renderWithIntl(<FindingCard f={FINDING} defaultExpanded onAction={onAction} />);

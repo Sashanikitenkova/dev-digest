@@ -15,12 +15,29 @@
 export {
   assemblePrompt,
   wrapUntrusted,
+  formatSkillBlocks,
+  formatSpecBlocks,
+  formatSpecSection,
+  SPEC_SECTION_HEADING,
+  formatIntentBlock,
+  type SkillBlock,
+  type SpecDoc,
   type PromptParts,
   type AssembledPrompt,
+  type IntentForPrompt,
 } from './prompt.js';
 
 // Citation grounding — the mandatory mechanical gate for diff findings.
 export { groundFindings, groundingSummary, type GroundingResult } from './grounding.js';
+
+// Deterministic scope filter — demotes (never deletes) out-of-scope findings.
+export {
+  applyScopeFilter,
+  isScopeExempt,
+  scopeEntryMatches,
+  type ScopeResult,
+  type ScopeDemotion,
+} from './scope.js';
 
 // Structured-output helpers (Zod → JSON Schema + parse-with-repair).
 export {

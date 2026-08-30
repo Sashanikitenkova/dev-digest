@@ -1,7 +1,11 @@
 /* hooks/core.ts — typed React Query hooks over the F1 API (contracts):
-   settings, secrets, repos, pulls, and project context. Scaffolding screens use
-   these; feature-domain hooks live in the sibling files (agents/reviews/trace/…)
-   and are re-exported alongside these from hooks/index.ts. */
+   settings, secrets, repos and pulls. Scaffolding screens use these;
+   feature-domain hooks live in the sibling files (agents/reviews/trace/…) and
+   are re-exported alongside these from hooks/index.ts.
+
+   Project context moved to hooks/context.ts with SPEC-01: the two hooks that
+   used to live here targeted a `/repos/:id/context/reindex` endpoint the server
+   never exposed, and discovery is now a live walk with no index to rebuild. */
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -15,8 +19,6 @@ import type {
   Repo,
   PrMeta,
   PrDetail,
-  SpecFile,
-  IndexStatus,
 } from "../types";
 
 // ---- Settings (F1: GET/PUT /settings, POST /settings/test-connection) ----
@@ -119,19 +121,3 @@ export function usePullDetail(prId: string | number | null | undefined) {
   });
 }
 
-// ---- Project Context (A3 contract; safe to call once API exposes it) ----
-export function useContextFiles(repoId: string | null | undefined) {
-  return useQuery({
-    queryKey: ["context", repoId],
-    queryFn: () => api.get<SpecFile[]>(`/repos/${repoId}/context`),
-    enabled: !!repoId,
-  });
-}
-
-export function useReindexContext() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (repoId: string) => api.post<IndexStatus>(`/repos/${repoId}/context/reindex`),
-    onSuccess: (_d, repoId) => qc.invalidateQueries({ queryKey: ["context", repoId] }),
-  });
-}

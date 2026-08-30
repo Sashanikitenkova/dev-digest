@@ -92,8 +92,14 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
 
   // Global rate limit. Disabled under test so integration suites can hammer
   // endpoints via inject(); per-route overrides live on the routes themselves.
+  //
+  // The budget is per IP, and the whole studio is a single localhost IP driven
+  // by one person — so this is protecting the machine from its own UI. It has
+  // to leave room for the pollers (repo-intel status every 1.5 s, the two runs
+  // pollers every 4 s) AND for ordinary editing on top; the old flat 120 did
+  // not, and attaching a few context documents came back 429.
   if (config.nodeEnv !== 'test') {
-    await app.register(rateLimit, { max: 120, timeWindow: '1 minute' });
+    await app.register(rateLimit, { max: config.rateLimitMax, timeWindow: '1 minute' });
   }
 
   // Liveness check (no module, no DB, no rate limit).
@@ -156,8 +162,28 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
       });
       return;
     }
-    app.log.error(err);
     const e = err as { statusCode?: number; message?: string };
+    // A rate-limit rejection is not an internal error, and calling it one made
+    // it unreadable at both ends: logged at `error` as if the server had
+    // broken, and delivered to the client as `internal_error` with the retry
+    // delay available only as prose inside the message. The plugin has already
+    // set `retry-after` on the reply by the time we get here, so hand that back
+    // as a NUMBER — the studio backs off by exactly what was asked rather than
+    // guessing or parsing English.
+    if (e.statusCode === 429) {
+      const header = reply.getHeader('retry-after');
+      const retryAfter = Number(header);
+      app.log.warn({ retryAfter: header }, 'rate limit exceeded');
+      reply.status(429).send({
+        error: {
+          code: 'rate_limited',
+          message: e.message ?? 'Rate limit exceeded',
+          details: Number.isFinite(retryAfter) ? { retryAfter } : undefined,
+        },
+      });
+      return;
+    }
+    app.log.error(err);
     reply.status(e.statusCode ?? 500).send({
       error: { code: 'internal_error', message: e.message ?? 'Internal error' },
     });

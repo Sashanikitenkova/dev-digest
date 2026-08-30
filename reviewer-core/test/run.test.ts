@@ -136,3 +136,126 @@ describe('reviewPullRequest (engine)', () => {
     expect(seen.every((s) => s === 'sess-abc')).toBe(true);
   });
 });
+
+/**
+ * The pipeline order that keeps score, findings and events consistent:
+ * ground → scope → score. A finding grounding already dropped can never turn
+ * up in `demoted`, and the score is computed from POST-demotion severities.
+ */
+describe('reviewPullRequest — scope filter placement', () => {
+  // 1 exempt CRITICAL + 1 demotable style WARNING, both on line 11 (in the mock
+  // diff), plus a style WARNING at line 999 that grounding must drop first.
+  const scoped = {
+    verdict: 'request_changes',
+    summary: 'mixed',
+    score: 50,
+    findings: [
+      {
+        id: 'f-critical',
+        severity: 'CRITICAL',
+        category: 'security',
+        title: 'Hardcoded Stripe secret key',
+        file: 'src/config.ts',
+        start_line: 11,
+        end_line: 11,
+        rationale: 'sk_live in diff',
+        confidence: 0.98,
+        kind: 'finding',
+      },
+      {
+        id: 'f-style',
+        severity: 'WARNING',
+        category: 'style',
+        title: 'Quote style is inconsistent with the file',
+        file: 'src/config.ts',
+        start_line: 11,
+        end_line: 11,
+        rationale: 'double quotes',
+        confidence: 0.5,
+        kind: 'finding',
+      },
+      {
+        id: 'f-hallucinated',
+        severity: 'WARNING',
+        category: 'style',
+        title: 'phantom nit on a line not in the diff',
+        file: 'src/config.ts',
+        start_line: 999,
+        end_line: 999,
+        rationale: 'not real',
+        confidence: 0.2,
+        kind: 'finding',
+      },
+    ],
+  };
+
+  const intent = {
+    intent: 'Bump the redis timeout',
+    in_scope: ['src/redis/'],
+    out_of_scope: ['src/config.ts'],
+    confidence_level: 'high' as const,
+  };
+
+  async function run(over: Partial<Parameters<typeof reviewPullRequest>[0]> = {}) {
+    const llm = new MockLLMProvider('openai', { structured: scoped });
+    const diff = await new MockGitClient().diff();
+    const events: string[] = [];
+    const outcome = await reviewPullRequest({
+      systemPrompt: 'reviewer',
+      model: 'gpt-4.1',
+      diff,
+      llm,
+      onEvent: (e) => events.push(e.msg),
+      ...over,
+    });
+    return { outcome, events };
+  }
+
+  it('grounds first, then demotes, then scores from the demoted severities', async () => {
+    const { outcome, events } = await run({ intent });
+
+    // grounding ran first and still dropped the phantom
+    expect(outcome.grounding).toBe('2/3 passed');
+    expect(outcome.dropped).toHaveLength(1);
+    // …so it can never appear as a demotion, even though it matched the entry
+    expect(outcome.demoted.map((d) => d.finding.id)).toEqual(['f-style']);
+
+    // demotion, never deletion
+    expect(outcome.review.findings).toHaveLength(2);
+    const style = outcome.review.findings.find((f) => f.id === 'f-style')!;
+    expect(style.severity).toBe('SUGGESTION');
+    expect(style.out_of_scope).toBe(true);
+    expect(style.scope_note).toContain('demoted WARNING→SUGGESTION');
+
+    // the CRITICAL security finding is untouched by the escape hatch
+    const crit = outcome.review.findings.find((f) => f.id === 'f-critical')!;
+    expect(crit.severity).toBe('CRITICAL');
+    expect(crit.out_of_scope ?? null).toBeNull();
+
+    // score uses POST-demotion severities: 100 − 35 (CRITICAL) − 3 (SUGGESTION)
+    expect(outcome.review.score).toBe(62);
+
+    expect(
+      events.some((m) => m.startsWith('scope: demoted "Quote style is inconsistent with the file"')),
+    ).toBe(true);
+  });
+
+  it('logs the no-op instead of demoting when intent confidence is low', async () => {
+    const { outcome, events } = await run({ intent: { ...intent, confidence_level: 'low' } });
+
+    expect(outcome.demoted).toHaveLength(0);
+    expect(outcome.review.findings.find((f) => f.id === 'f-style')!.severity).toBe('WARNING');
+    // 100 − 35 (CRITICAL) − 12 (WARNING)
+    expect(outcome.review.score).toBe(53);
+    expect(events).toContain('scope: intent confidence low — no findings demoted');
+  });
+
+  it('is entirely silent and inert when no intent is supplied', async () => {
+    const { outcome, events } = await run();
+
+    expect(outcome.demoted).toHaveLength(0);
+    expect(outcome.review.score).toBe(53);
+    expect(events.some((m) => m.startsWith('scope:'))).toBe(false);
+    expect(outcome.assembly.intent ?? null).toBeNull();
+  });
+});

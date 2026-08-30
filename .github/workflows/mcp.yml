@@ -1,0 +1,48 @@
+# mcp suite — the local stdio MCP server (@devdigest/mcp).
+# Exposes DevDigest's HTTP API on :3001 to MCP hosts as five workflow-level tools.
+# Tests are hermetic units against a stubbed DevDigestApi port (no API, DB, or
+# Docker). Uses npm (package-lock.json).
+#
+# No cross-package source alias: the package is a pure HTTP consumer and defines
+# its own output schemas, so the path filter is mcp/** only.
+name: mcp
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mcp/**'
+      - '.github/workflows/mcp.yml'
+  pull_request:
+    paths:
+      - 'mcp/**'
+      - '.github/workflows/mcp.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mcp-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mcp
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mcp/package-lock.json
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm test

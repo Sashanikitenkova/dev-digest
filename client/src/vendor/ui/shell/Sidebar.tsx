@@ -11,7 +11,7 @@ export function Sidebar({ ctx }: { ctx: ShellContext }) {
   return (
     <aside
       style={{
-        width: 264,
+        width: 210,
         flexShrink: 0,
         background: "var(--bg-surface)",
         borderRight: "1px solid var(--border)",
