@@ -9,13 +9,13 @@ export const routes = {
   settings: (section: string = "api-keys") => `/settings/${section}`,
   pulls: (repoId: string) => `/repos/${repoId}/pulls`,
   pull: (repoId: string, number: number | string) => `/repos/${repoId}/pulls/${number}`,
+  context: (repoId: string) => `/repos/${repoId}/context`,
   agent: (id: string) => `/agents/${id}`,
   skills: () => "/skills",
   skill: (id: string) => `/skills/${id}`,
   conventions: () => "/conventions",
   evalDashboard: () => "/eval",
   agentEvals: (agentId: string) => `/eval/${agentId}`,
-  context: () => "/context",
 } as const;
 
 /**

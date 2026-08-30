@@ -27,6 +27,9 @@ export function activeKeyFor(pathname: string): string {
   if (pathname.startsWith("/settings")) return "settings";
   if (pathname.includes("/multi-agent")) return "multi-agent";
   if (pathname.includes("/onboarding")) return "onboarding-tour";
+  // `includes`, not `startsWith`: Project Context lives at
+  // /repos/:repoId/context. This must stay ABOVE the "/pulls" check —
+  // both branches match a /repos/:repoId/... path, and first wins.
   if (pathname.includes("/context")) return "context";
   if (pathname.includes("/conventions")) return "conventions";
   if (pathname.includes("/pulls")) return "pulls";

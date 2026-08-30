@@ -232,6 +232,42 @@ do-not-touch rule on vendored `nav.ts`, after Conventions (2026-07-20), so a
 resync against `@devdigest/ui` must preserve both. Evidence:
 `client/src/vendor/ui/nav.ts:31`, `:25-54`.
 
+### 2026-08-30 — [Pattern] Repo-scoping a page is a ONE-STRING change, because `:repoId` already round-trips through the shell
+
+Project Context shipped at a global `/context` and read its repo from
+`useActiveRepo()`, whose priority is `URL > localStorage("dd-repo") > first repo
+from the API` (`client/src/lib/repo-context.tsx:48`). The listing was already
+per-repo (`GET /repos/:id/context`), so only the URL was wrong — but that made
+the page unshareable and let two people open "the same" link on two different
+repositories. Moving it to `/repos/:repoId/context` cost one string, because
+three separate mechanisms already meet in the middle:
+
+1. `nav.ts` hrefs carry a `:repoId` TOKEN, and every navigation surface resolves
+   it through the same `resolveHref(href, repoId)` — the sidebar
+   (`NavItem.tsx:21`), the `g`-chord (`useGlobalShortcuts.ts:46`) and the
+   command palette (`useShellCommands.ts:27`). Editing the one `href` fixed all
+   three; there is no per-surface wiring to chase.
+2. `RepoProvider` derives the active repo FROM the path first
+   (`repoIdFromPath` = `^/repos/([^/]+)`), so a page moved under `/repos/:id/`
+   automatically feeds `activeRepo` the repo in its own URL — no provider change,
+   and the page's display name kept working untouched.
+3. `activeKeyFor` matches `/context` with `includes`, not `startsWith`, so the
+   sidebar highlight survived the move for free. That is luck worth pinning: its
+   `/context` branch and its `/pulls` branch BOTH match a `/repos/:repoId/…`
+   path, and the first one wins. A comment now says so.
+
+The one thing that is not free is the test. `vi.mock("next/navigation", …)` in
+this corpus replaces the WHOLE module (no `importOriginal`), so a page that adds
+`useParams` must also declare `useRouter` if any branch renders `RepoNotFound` —
+a `useParams`-only mock passes every existing test and throws only when the
+not-found branch is first exercised. Evidence: `client/src/vendor/ui/nav.ts`
+(`NAV` → `context`), `client/src/app/repos/[repoId]/context/`,
+`client/src/components/app-shell/helpers.ts:30-33`.
+
+Also: this is the FOURTH deliberate edit to vendored `nav.ts`, after Conventions
+(2026-07-20), Project Context (2026-08-28) and the Eval Dashboard (2026-08-30).
+A resync against `@devdigest/ui` must preserve all four.
+
 ### 2026-08-30 — [Context] `g e` is now taken by the Eval Dashboard; the free g-chords are down to a handful
 
 Third deliberate edit to vendored `nav.ts`, after Conventions (2026-07-20) and

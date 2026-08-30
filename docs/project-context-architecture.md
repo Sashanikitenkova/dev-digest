@@ -24,7 +24,7 @@ flowchart TD
 
     subgraph Studio["Studio (client/ · :3000)"]
         PICKER["ContextFilesPicker<br/>attach · reorder · preview"]
-        PAGE["/context page<br/>read-only browse"]
+        PAGE["/repos/:repoId/context page<br/>read-only browse"]
     end
 
     subgraph Api["API (server/ · :3001)"]
@@ -175,7 +175,7 @@ document look universally adopted
 `cloned: false` is a first-class state, not an error — a repo can be added before
 it is cloned, and both the page and the picker render it distinctly from "cloned
 but no documents"
-(`client/src/app/context/_components/ProjectContextView/ProjectContextView.tsx:65-75`).
+(`client/src/app/repos/[repoId]/context/_components/ProjectContextView/ProjectContextView.tsx`).
 
 ---
 
@@ -426,17 +426,19 @@ Two things worth knowing when reading a trace:
 
 | Surface | File | Notes |
 |---|---|---|
-| `/context` page | `client/src/app/context/_components/ProjectContextView/` | Read-only browse: list, type badge, "used by N agents", rendered markdown, footer totals |
+| `/repos/:repoId/context` page | `client/src/app/repos/[repoId]/context/_components/ProjectContextView/` | Read-only browse: list, type badge, "used by N agents", rendered markdown, footer totals. Repo-scoped via the route segment, so the link is shareable and each repo shows its own listing |
 | Agent editor → Context tab | `client/src/app/agents/[id]/.../ContextTab/` | Attach the agent's own documents |
 | Skill editor → Context tab | `client/src/app/skills/[id]/.../ContextTab/` | Attach documents every linking agent inherits |
 | Shared picker | `client/src/components/ContextFilesPicker/` | Mounted by both editors; owns no server state |
-| Sidebar entry | `client/src/vendor/ui/nav.ts:31` | `WORKSPACE` group, `g x` shortcut |
+| Sidebar entry | `client/src/vendor/ui/nav.ts` (`NAV` → `context`) | `WORKSPACE` group, `g x` shortcut. `href` carries the `:repoId` token; `resolveHref` fills it from the active repo, so the sidebar, `g x` and the command palette all land on the current repo |
 
-The `/context` page is **read-only by design**: there is no create, edit, upload,
+The `/repos/:repoId/context` page is **read-only by design**: there is no create, edit, upload,
 delete or refresh control on it, and adding one would be a change of contract, not
 a feature. The server exposes no write path either — `GitClient` has no write
 method, and `sync()` would `reset --hard` any local edit away
-(`ProjectContextView.tsx:1-12`, negative test at `ProjectContextView.test.tsx:104`).
+(see the `ProjectContextView.tsx` docblock, and the negative test
+"exposes no control that creates, edits, uploads or deletes a file" in
+`ProjectContextView.test.tsx`).
 
 The picker lives in `src/components/` rather than one editor's `_components/`
 because both editors mount it, and it takes `title`/`note` as **props** so each

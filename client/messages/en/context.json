@@ -29,11 +29,9 @@
     "notSerialized": "{path} is attached but was not read from the clone ({reason}) — it will not reach the model."
   },
   "page": {
-    "crumbWorkspace": "Workspace",
     "headingPrefix": "Project context for ",
     "repoFallback": "no repository",
     "subtitle": "Markdown documents discovered under {roots} in this repository's clone. Read-only — edit them in the repository.",
-    "noRepo": "Select a repository to see its project context.",
     "usedBy": "Used by {count, plural, =1 {# agent} other {# agents}}",
     "selectHint": "Select a document to read it.",
     "footer": "{files, plural, =1 {# document} other {# documents}} · ≈ {tokens, number} tokens"

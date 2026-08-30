@@ -1,4 +1,11 @@
-/* /context — the Project Context page (SPEC-01).
+/* /repos/:repoId/context — the Project Context page (SPEC-01).
+
+   REPO-SCOPED VIA THE URL. The documents are one repository's own files, so
+   the repo id comes from the route segment rather than from the ambient
+   active-repo state: the link is then shareable, the back button means
+   something, and two repos genuinely show two listings. `RepoProvider` reads
+   the same segment (`repoIdFromPath`, lib/repo-context.tsx), so `activeRepo`
+   below already refers to the repo in the URL.
 
    READ-ONLY BY DESIGN. There is no create, edit, upload, delete or refresh
    control anywhere on this page, and adding one would be a change of contract,
@@ -14,15 +21,20 @@
 
 import React from "react";
 import { useTranslations } from "next-intl";
+import { useParams } from "next/navigation";
 import { Badge, EmptyState, ErrorState, Markdown, Skeleton } from "@devdigest/ui";
-import { AppShell } from "../../../../components/app-shell";
-import { useActiveRepo } from "../../../../lib/repo-context";
-import { useContextFile, useContextFiles } from "../../../../lib/hooks/context";
+import { AppShell } from "@/components/app-shell";
+import { RepoNotFound } from "@/components/repo-not-found";
+import { useActiveRepo, useRepoNotFound } from "@/lib/repo-context";
+import { useContextFile, useContextFiles } from "@/lib/hooks/context";
 import { s } from "./styles";
 
 export function ProjectContextView() {
   const t = useTranslations("context");
-  const { repoId, activeRepo } = useActiveRepo();
+  const params = useParams<{ repoId: string }>();
+  const repoId = params.repoId;
+  const { activeRepo } = useActiveRepo();
+  const repoNotFound = useRepoNotFound(repoId);
 
   const { data: listing, isLoading, isError, refetch } = useContextFiles(repoId);
   const [selected, setSelected] = React.useState<string | null>(null);
@@ -34,8 +46,18 @@ export function ProjectContextView() {
   const activePath = selected && files.some((f) => f.path === selected) ? selected : null;
   const { data: doc, isLoading: docLoading, isError: docError } = useContextFile(repoId, activePath);
 
-  const crumb = [{ label: t("page.crumbWorkspace") }, { label: t("title") }];
+  // Repo crumb, not "Workspace": the page belongs to one repository now.
+  const crumb = [{ label: activeRepo?.full_name ?? repoId, mono: true }, { label: t("title") }];
   const repoShort = activeRepo?.full_name?.split("/").pop() ?? t("page.repoFallback");
+
+  // Stale/unknown :repoId → friendly empty state, matching PullsPage.
+  if (repoNotFound) {
+    return (
+      <AppShell crumb={crumb}>
+        <RepoNotFound />
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell crumb={crumb}>
@@ -50,9 +72,7 @@ export function ProjectContextView() {
           </div>
         </div>
 
-        {!repoId && <EmptyState icon="FileText" title={t("page.noRepo")} />}
-
-        {repoId && isLoading && (
+        {isLoading && (
           <div>
             <Skeleton height={120} />
             <div style={{ height: 14 }} />
@@ -60,13 +80,13 @@ export function ProjectContextView() {
           </div>
         )}
 
-        {repoId && isError && <ErrorState body={t("loadError")} onRetry={() => refetch()} />}
+        {isError && <ErrorState body={t("loadError")} onRetry={() => refetch()} />}
 
-        {repoId && !isLoading && !isError && listing?.cloned === false && (
+        {!isLoading && !isError && listing?.cloned === false && (
           <EmptyState icon="GitBranch" title={t("notCloned.title")} body={t("notCloned.body")} />
         )}
 
-        {repoId && !isLoading && !isError && listing?.cloned && files.length === 0 && (
+        {!isLoading && !isError && listing?.cloned && files.length === 0 && (
           <EmptyState
             icon="FileText"
             title={t("empty.title")}

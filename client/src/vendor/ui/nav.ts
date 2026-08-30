@@ -26,9 +26,13 @@ export const NAV: NavGroup[] = [
       // Project Context sits in WORKSPACE, not SKILLS LAB: the documents are
       // the repository's own files, shared by every agent and skill, rather
       // than something authored in the lab.
+      // Repo-scoped like `pulls`: the documents ARE one repository's files, so
+      // the repo belongs in the URL rather than being read from the ambient
+      // active-repo state — that is what makes the link shareable and what lets
+      // two repos show their own listing.
       // `gKey: "x"` because p/s/a/c and "," are already taken and "conteXt" is
       // the only free mnemonic — "d" would read as the bare Dismiss-finding key.
-      { key: "context", label: "Project Context", icon: "FileText", href: "/context", gKey: "x" },
+      { key: "context", label: "Project Context", icon: "FileText", href: "/repos/:repoId/context", gKey: "x" },
     ],
   },
   {
