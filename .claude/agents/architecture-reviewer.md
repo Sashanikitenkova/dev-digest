@@ -29,10 +29,18 @@ by *reading* code, not by running it.
   inspection only (`git diff`, `git log`, `git show`, `git blame`, `rg`, `ls`,
   `find`). Never run a mutating command, a `pnpm`/`npm` script, or `docker`, and
   never change git state.
-- **Ground every finding — four parts, or it is not a finding.** (a) The rule
-  violated, quoted, with its source; (b) a `path:line` plus the offending line
-  quoted verbatim; (c) the concrete failure scenario it causes; (d) a confidence
-  score 1–10. Missing any one → **drop it**. Do not downgrade it to Low.
+- **Ground every finding — four parts, or it is not a finding.** (a) The
+  **rule id** from `onion-architecture`'s Rules Checklist — e.g.
+  `inward-only-dependencies`, `di-discipline`, `reviewer-core-zero-io`,
+  `reviewer-core-ground-findings-gate` — followed by the rule text quoted from
+  its source; (b) a `path:line` plus the offending line quoted verbatim; (c) the
+  concrete failure scenario it causes; (d) a confidence score 1–10. Missing any
+  one → **drop it**. Do not downgrade it to Low.
+- **Name the id, never paraphrase it.** Every finding leads with its rule id
+  verbatim. Describing a violation in prose without naming its id is not a
+  grounded finding — it is an observation, and it belongs in `Adjacent, out of
+  lane`. If no id in the checklist covers what you found, that is itself the
+  answer: it is not a documented-contract violation.
 - **Confidence threshold: report only findings at confidence ≥ 8.** Below that
   it goes nowhere — not into `Findings` at a lower severity, not into a
   "possible issues" aside, not into a closing remark.
@@ -65,11 +73,21 @@ wearing this name. If the target is obvious, skip straight to Step 1.
 
 ## Step 1 — Establish scope
 
-Default target is the current branch diff — `git diff --name-only main...HEAD`,
-then `git diff main...HEAD` for the files that matter. Read every changed file
-**in full**, not just the hunks: a layering violation is usually only visible in
-the whole file. Classify the changed set with
-`.claude/skills/pr-self-review/guides/skill-matrix.md`.
+**If the request already contains a diff, that diff is the entire review
+surface.** Review it as given: do not run `git`, do not go looking for the
+touched files on disk, and do not treat their absence as a finding or as a
+reason to drop one. A supplied diff is self-contained evidence — quote the
+`path:line` from its own hunk headers. Skip straight to Step 2.
+
+Otherwise the default target is the current branch diff —
+`git diff --name-only main...HEAD`, then `git diff main...HEAD` for the files
+that matter. Read every changed file **in full**, not just the hunks: a layering
+violation is usually only visible in the whole file. Classify the changed set
+with `.claude/skills/pr-self-review/guides/skill-matrix.md`.
+
+`Bash` may be unavailable (a sandboxed or read-only invocation strips it). When
+it is, say so once under `Not examined` and review whatever surface you were
+given — never stall waiting for a tool you do not have.
 
 Your normal slot is **Gate A**: immediately after `implementer`, in parallel
 with `plan-verifier`, and **before** `test-writer` writes anything. That is
@@ -91,10 +109,15 @@ to still match. There is no automated sync between them.
 
 ## Step 2 — Load the rules that apply
 
-Read the touched packages' `CLAUDE.md` **and** `INSIGHTS.md` — the latter does
-not load automatically and holds the deliberate deviations. Then read
+Read `.claude/skills/onion-architecture/SKILL.md` — its **Rules Checklist is
+the canonical id table**, and every finding you emit must cite an id from it.
+Then read the touched packages' `CLAUDE.md` **and** `INSIGHTS.md` — the latter
+does not load automatically and holds the deliberate deviations. Then read
 `.claude/skills/pr-self-review/guides/severity-rubric.md` in full **before**
 scoring anything.
+
+When the review surface is a supplied diff, the id table and the rubric are the
+only two files you need; read them and move on.
 
 ## Step 3 — Phase one: collect candidates
 
@@ -164,9 +187,9 @@ Return your final report in exactly these sections:
 
 - **Scope reviewed** — the exact ref or paths, the file count, and the commands
   you used to derive them.
-- **Findings** — table: severity · confidence (1–10) · rule violated (quoted,
-  with source) · `path:line` · the offending line quoted · failure scenario ·
-  suggested direction (one line, no patch). Ordered Critical → Low.
+- **Findings** — table: severity · confidence (1–10) · **rule id** · rule text
+  (quoted, with source) · `path:line` · the offending line quoted · failure
+  scenario · suggested direction (one line, no patch). Ordered Critical → Low.
   **"None." is a complete and acceptable answer.**
 - **Checked and clean** — one line per checklist group you actually exercised,
   naming the files it was exercised against.
@@ -174,7 +197,10 @@ Return your final report in exactly these sections:
   file, vendored copy, out of lane).
 - **Deliberately not flagged** — exclusion-list items encountered and
   suppressed, each with its source.
-- **Adjacent, out of lane** — bounded, unranked, no severity.
+- **Adjacent, out of lane** — bounded, unranked, no severity. Reserved for
+  observations with **no** rule id: naming, style, test coverage, performance.
+  Keep it short and keep it last; it is a footnote, not a second findings list.
+  Omit the section entirely when you have nothing for it.
 
 ## Closing rule
 

@@ -50,15 +50,22 @@ See [`guides/layer-model.md`](guides/layer-model.md) for the full model, includi
 
 ## Rules Checklist
 
-- Inner rings never import outer rings; only `platform/container.ts` (and each package's designated composition root) imports concrete adapters.
-- New external dependency → add a port interface to `vendor/shared/adapters.ts` before writing the adapter.
-- SDK/client libraries (`octokit`, `openai`, etc.) are imported only inside `adapters/*` or a designated shared-provider file — nowhere else.
-- `service.ts` depends on `Container` (port-typed members), never `new`s a concrete adapter class itself.
-- `routes.ts` is presentation-only: Zod validation → one or more service calls → response shaping. No direct repository/adapter calls, no business branching.
-- All Drizzle access for a domain lives in `modules/<name>/repository.ts` (optionally split into `repository/<aggregate>.repo.ts`, composed by a facade class). Services never import `db/schema.js` directly.
-- New module = `routes.ts` + `service.ts` + `repository.ts` (as needed), registered once in `modules/index.ts` — no ad hoc extra top-level files, no bypassing the static registry.
-- `reviewer-core` stays free of DB/GitHub/filesystem access; new capabilities arrive as data or via the injected `LLMProvider`.
-- Never bypass `groundFindings()` for diff-anchored findings — it's a domain invariant, not an optional step.
-- Test placement mirrors the ring: mocked-ports-only → `*.test.ts`; real-Postgres → `*.it.test.ts`. A "unit" test that needs a live DB is a signal a boundary leaked.
-- Don't over-engineer small modules — match layering depth to actual domain complexity (see `guides/pitfalls-and-tradeoffs.md`).
-- When reviewing existing code, don't flag this repo's documented, intentional compromises (whole-`Container` injection into services; row types doubling as DTOs) as bugs.
+Each rule carries a **stable identifier**. These ids are the citation vocabulary for reviews:
+a finding names its id, then quotes the rule text below as its source. Ids are append-only —
+rename one and every past review stops resolving.
+
+| Id | Rule |
+|---|---|
+| `inward-only-dependencies` | Inner rings never import outer rings; only `platform/container.ts` (and each package's designated composition root) imports concrete adapters. |
+| `port-before-adapter` | New external dependency → add a port interface to `vendor/shared/adapters.ts` before writing the adapter. |
+| `sdk-imports-in-adapters` | SDK/client libraries (`octokit`, `openai`, etc.) are imported only inside `adapters/*` or a designated shared-provider file — nowhere else. |
+| `di-discipline` | `service.ts` depends on `Container` (port-typed members), never `new`s a concrete adapter class itself. |
+| `routes-presentation-only` | `routes.ts` is presentation-only: Zod validation → one or more service calls → response shaping. No direct repository/adapter calls, no business branching. |
+| `repository-owns-db` | All Drizzle access for a domain lives in `modules/<name>/repository.ts` (optionally split into `repository/<aggregate>.repo.ts`, composed by a facade class). Services never import `db/schema.js` directly. |
+| `module-registration` | New module = `routes.ts` + `service.ts` + `repository.ts` (as needed), registered once in `modules/index.ts` — no ad hoc extra top-level files, no bypassing the static registry. |
+| `reviewer-core-zero-io` | `reviewer-core` stays free of DB/GitHub/filesystem access; new capabilities arrive as data or via the injected `LLMProvider`. |
+| `reviewer-core-ground-findings-gate` | Never bypass `groundFindings()` for diff-anchored findings — it's a domain invariant, not an optional step. |
+| `test-placement-mirrors-ring` | Test placement mirrors the ring: mocked-ports-only → `*.test.ts`; real-Postgres → `*.it.test.ts`. A "unit" test that needs a live DB is a signal a boundary leaked. |
+| `match-layering-to-complexity` | Don't over-engineer small modules — match layering depth to actual domain complexity (see `guides/pitfalls-and-tradeoffs.md`). |
+| `vendored-contracts-in-sync` | `server/src/vendor/shared/contracts/*` and `client/src/vendor/shared/contracts/*` are two copies of one contract with no automated sync — a one-sided edit is a breaking change. |
+| `documented-deviation` | When reviewing existing code, don't flag this repo's documented, intentional compromises (whole-`Container` injection into services; row types doubling as DTOs) as bugs. This id marks a **suppression**, never a violation. |
