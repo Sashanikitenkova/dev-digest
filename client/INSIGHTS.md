@@ -594,6 +594,22 @@ what the "Create skill" button consumes — hiding them would make the "N of M
 accepted" counter refer to rows the user can no longer see. Evidence:
 `client/src/app/conventions/_components/ConventionsView/helpers.ts`.
 
+### 2026-08-30 — `next build` and `next dev` share `.next` and corrupt each other
+
+Running `pnpm build` in `client/` while `pnpm dev` is live leaves `.next` holding
+two interleaved generations, and the symptom is a runtime error that looks like a
+missing dependency: `Cannot find module './vendor-chunks/recharts@2.15.4_...js'`
+on `/repos/[repoId]/pulls`. The package is installed and resolvable — what is
+missing is the emitted chunk. Diagnose by comparing what the page bundle requires
+against what exists: `grep -o 'vendor-chunks/[^"]*' .next/server/app/<route>/page.js`
+vs `ls .next/server/vendor-chunks/`. A `.next` that mixes both modes is
+identifiable by its file mtimes: production-only markers (`BUILD_ID`,
+`required-server-files.json`, `*.nft.json`, `export-marker.json`) carrying a
+different timestamp than the dev artifacts (`webpack-runtime.js`,
+`vendor-chunks/`, the route's `page.js`). Next.js does not isolate the two modes,
+so the fix is `rm -rf .next` plus a dev restart, and the prevention is to give a
+concurrent build its own `distDir`.
+
 ## Open Questions
 
 _Nothing recorded yet._
