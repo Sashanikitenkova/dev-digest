@@ -1,0 +1,12 @@
+# Build-script allow-list for this package.
+#
+# pnpm >=10 blocks dependency postinstall scripts by default, and pnpm >=11 no longer reads the
+# `pnpm.onlyBuiltDependencies` field from package.json. vitest pulls esbuild, whose postinstall
+# downloads the platform binary — without this file `pnpm install --frozen-lockfile` prints
+# ERR_PNPM_IGNORED_BUILDS and every eval run fails on a missing esbuild binary. Both spellings are
+# listed so the file works under pnpm 10 (onlyBuiltDependencies) and pnpm 11+ (allowBuilds).
+onlyBuiltDependencies:
+  - esbuild
+
+allowBuilds:
+  esbuild: true
