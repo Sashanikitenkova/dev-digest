@@ -31,6 +31,12 @@ export interface RecordData {
   verdict?: Verdict;
   grounded?: number;
   threshold?: number;
+  /**
+   * The case's ACTUAL pass/fail. Required for any tier with neither a grounding gate nor a judge
+   * (i.e. the whole workflow tier) — without it the fallback below records `!isError`, which only
+   * says the session stayed under maxTurns and is unrelated to whether the assertions held.
+   */
+  outcome?: boolean;
   extra?: Record<string, unknown>;
 }
 
@@ -44,14 +50,18 @@ export function record(label: string, data: RecordData): void {
   const state = expect.getState();
   const nodeid = `${state.testPath ?? "?"} > ${state.currentTestName ?? label}`;
 
-  // outcome: grounding gate failure short-circuits to false; else the judge threshold; else
-  // "did the run itself succeed" (workflow tests have neither grounding nor a judge verdict).
+  // outcome: an explicit pass/fail from the caller always wins; else the grounding gate; else the
+  // judge threshold; else "did the run itself succeed". That last fallback is a poor proxy — it is
+  // true whenever the session merely stayed under maxTurns — so any caller that knows the real
+  // verdict must pass `outcome` rather than rely on it.
   const outcome =
-    grounded !== undefined && grounded < 1
-      ? false
-      : verdict && threshold !== undefined
-        ? verdict.score >= threshold
-        : !result.isError;
+    data.outcome !== undefined
+      ? data.outcome
+      : grounded !== undefined && grounded < 1
+        ? false
+        : verdict && threshold !== undefined
+          ? verdict.score >= threshold
+          : !result.isError;
 
   const outDir = join(OUTPUTS, RUN_ID);
   mkdirSync(outDir, { recursive: true });

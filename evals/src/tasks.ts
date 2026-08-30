@@ -8,7 +8,7 @@
  *     SYSTEMIC effect: does a skill activate, does a subagent dispatch, does CLAUDE.md matter.
  */
 
-import { IS_BASELINE, WORKFLOW_ALLOWED_TOOLS } from "./config.js";
+import { IS_BASELINE, WORKFLOW_ALLOWED_TOOLS, WORKFLOW_DENIED_TOOLS } from "./config.js";
 import { runClaude, type RunOptions } from "./runtime/run-claude.js";
 import { runContent } from "./runtime/dispatch.js";
 import { skillContent, agentContent, agentTools } from "./artifacts/load.js";
@@ -44,13 +44,17 @@ export function agentTask(prompt: string, agentName: string, opts: RunOptions = 
  * Use for workflow-level evals: skill activation, subagent dispatch, CLAUDE.md effect.
  * Ignores EVAL_CONFIG — the workflow tier has its own control-vs-treatment design.
  *
- * Safety: keep allowedTools a read-only allow-list (no Bash/Write/Edit) — a fresh session
- * with bypassPermissions could otherwise take real actions in the repo.
+ * Safety: `allowedTools` does NOT restrict anything — the SDK documents it as an auto-approve
+ * list, and under bypassPermissions everything is approved anyway. A 2026-08-30 run proved it:
+ * a case wrote a fabricated entry into the real server/INSIGHTS.md. The guard is
+ * `disallowedTools`, which the SDK strips from the model's context. It is applied LAST so a
+ * caller cannot accidentally drop it by passing its own opts.
  */
 export function workflowTask(prompt: string, opts: RunOptions = {}) {
   return runClaude(prompt, {
     allowedTools: WORKFLOW_ALLOWED_TOOLS,
     ...opts,
+    disallowedTools: WORKFLOW_DENIED_TOOLS,
     settingSources: ["project"],
   });
 }

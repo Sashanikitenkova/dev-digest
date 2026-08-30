@@ -24,8 +24,12 @@ export const COST_REGRESSION_RATIO = 1.25; // candidate mean tokens > 125% of ba
 // --- Tool allow-lists -------------------------------------------------------
 // Subagent-spawning tool name varies by harness; count both.
 export const SPAWN_TOOLS = new Set(["Task", "Agent"]);
-// workflowTask runs against the LIVE repo with bypassPermissions — keep this read-only.
+// workflowTask runs against the LIVE repo. NOTE: `allowedTools` is an AUTO-APPROVE list, not a
+// restriction — under bypassPermissions it is a no-op. Isolation comes from WORKFLOW_DENIED_TOOLS
+// below, which the SDK strips from the model's context entirely.
 export const WORKFLOW_ALLOWED_TOOLS = ["Read", "Grep", "Glob", "Task", "Agent", "Skill"];
+// The actual guard. Every tool that can mutate the working tree or shell out.
+export const WORKFLOW_DENIED_TOOLS = ["Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"];
 
 // --- Output verbosity -------------------------------------------------------
 // Set EVAL_QUIET to suppress per-run trace/verdict spam during multi-run aggregation.
