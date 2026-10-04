@@ -14,7 +14,9 @@
     "turnIntoEvalCase": "Turn into eval case",
     "inEvalSet": "In eval set",
     "evalNeedsDecision": "Accept or dismiss this finding first — an eval case records a decision you already made.",
-    "evalCaseCreated": "Eval case created for {agent}."
+    "evalCaseCreated": "Eval case created for {agent}.",
+    "copyMarkdown": "Copy as Markdown",
+    "copied": "Copied!"
   },
   "trifecta": {
     "lethal": "LETHAL TRIFECTA — ALL 3 PRESENT",

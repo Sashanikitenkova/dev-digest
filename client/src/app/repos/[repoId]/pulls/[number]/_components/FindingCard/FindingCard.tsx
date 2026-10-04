@@ -19,7 +19,7 @@ import {
 } from "@devdigest/ui";
 import type { FindingRecord, FindingActionKind } from "@devdigest/shared";
 import { SEV_COLOR, SEV_COLOR_FALLBACK } from "./constants";
-import { lineLabel } from "./helpers";
+import { findingToMarkdown, lineLabel } from "./helpers";
 import { githubBlobUrl } from "../../../../../../../lib/github-urls";
 import { s } from "./styles";
 
@@ -60,7 +60,18 @@ export function FindingCard({
 }) {
   const t = useTranslations("prReview");
   const [expanded, setExpanded] = React.useState(defaultExpanded ?? false);
+  const [copied, setCopied] = React.useState(false);
   const rootRef = React.useRef<HTMLDivElement | null>(null);
+
+  const copyMarkdown = async () => {
+    try {
+      await navigator.clipboard.writeText(findingToMarkdown(f));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard unavailable (non-secure context) — silent, non-critical */
+    }
+  };
 
   // `expanded` is uncontrolled, so a parent can't open this card by re-rendering
   // it — the deep link has to push it open from here, on mount or when the URL
@@ -142,6 +153,9 @@ export function FindingCard({
               onClick={() => onAction?.("dismiss")}
             >
               {t("finding.dismiss")}
+            </Button>
+            <Button kind="ghost" size="sm" icon="Copy" active={copied} onClick={copyMarkdown}>
+              {copied ? t("finding.copied") : t("finding.copyMarkdown")}
             </Button>
             {onCreateEvalCase && (
               <Button
