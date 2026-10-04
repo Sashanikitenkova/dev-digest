@@ -78,6 +78,24 @@ describe("FindingCard (smoke, both themes)", () => {
   });
 });
 
+describe("FindingCard — copy as Markdown", () => {
+  it("writes the finding as Markdown to the clipboard and confirms", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+
+    renderWithIntl(<FindingCard f={FINDING} defaultExpanded onAction={() => {}} />);
+    fireEvent.click(screen.getByText("Copy as Markdown"));
+
+    expect(writeText).toHaveBeenCalledWith(
+      "**[CRITICAL] Hardcoded Stripe secret key** · security\n\n" +
+        "`src/config.ts:L11`\n\n" +
+        "A **live** Stripe key is committed in source.\n\n" +
+        "**Suggested fix:**\nMove the key to an environment variable.",
+    );
+    expect(await screen.findByText("Copied!")).toBeInTheDocument();
+  });
+});
+
 describe("FindingCard — turn into eval case (SPEC-03)", () => {
   it("is not rendered at all when the parent supplies no handler", () => {
     renderWithIntl(<FindingCard f={FINDING} defaultExpanded onAction={() => {}} />);
